@@ -70,13 +70,14 @@ function emptyDeliveryServer() {
     artikelen: '', bedrag: '',
     status: 'te-leveren',
     toegewezenAan: null,
+    handmatigeVolgorde: null,
     plaatsing: {
       correctGeplaatst: false, bevestiging: '', valmatten: false, verlengkabel: false,
       aantalKabels: '', netjes: false, opmerkingen: '', tijdstip: '', bevestigd: false, bevestigdOp: ''
     },
     betaling: { status: '', opmerking: '' },
     afhaling: {
-      valmattenTerug: false, kabelsTerug: false, natOfVuil: false, reinigingNodig: false,
+      valmattenTerug: false, kabelsTerug: false, bevestigingTerug: false, natOfVuil: false, reinigingNodig: false,
       opmerkingen: '', tijdstip: '', bevestigd: false, bevestigdOp: ''
     }
   };
@@ -96,6 +97,13 @@ function normalizeTime(v) {
   const m = s.match(/^(\d{1,2}):(\d{2})/);
   if (m) return m[1].padStart(2, '0') + ':' + m[2];
   return s;
+}
+function normalizeOndergrond(v) {
+  if (!v) return '';
+  const s = String(v).toLowerCase();
+  if (s.includes('hard')) return 'Harde ondergrond';
+  if (s.includes('gras') || s.includes('grass')) return 'Op gras';
+  return v;
 }
 function getField(row, ...names) {
   for (const key of Object.keys(row)) {
@@ -246,7 +254,8 @@ app.post('/api/import', auth, adminOnly, async (req, res) => {
     d.email = getField(row, 'Email', 'E-mail');
     d.adres = adres;
     d.postcode = postcode;
-    d.ondergrond = getField(row, 'Surface', 'Ondergrond');
+    d.ondergrond = normalizeOndergrond(getField(row, 'Surface', 'Ondergrond'));
+    if (d.ondergrond === 'Harde ondergrond') d.plaatsing.valmatten = true;
     d.datum = normalizeDate(getField(row, 'Delivery Date', 'Leverdatum'));
     d.tijdslot = normalizeTime(getField(row, 'Drop Off', 'Levertijd'));
     d.afhaaldatum = normalizeDate(getField(row, 'Collection Date', 'Afhaaldatum'));

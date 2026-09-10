@@ -85,6 +85,13 @@ manier (Stap 1, bestanden overschrijven in de bestaande repository — GitHub
 vraagt of je wil vervangen). Render herbouwt en herstart de app dan automatisch
 binnen enkele minuten.
 
+## Logo wijzigen
+
+Het logo staat in `public/logo.png`. Wil je het later vervangen: upload gewoon
+een nieuw bestand met exact die naam (`public/logo.png`) naar GitHub — geen
+codewijziging nodig. Ontbreekt het bestand, dan valt de app automatisch terug
+op de tekst "Belair·Fun".
+
 ## Kosten
 
 - De PostgreSQL-database is gratis voor de eerste 30 dagen, daarna meestal
