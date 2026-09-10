@@ -50,6 +50,10 @@ async function initDb() {
       lng DOUBLE PRECISION NOT NULL,
       updated_at TIMESTAMPTZ DEFAULT now()
     );
+    CREATE TABLE IF NOT EXISTS app_settings(
+      key TEXT PRIMARY KEY,
+      value TEXT
+    );
   `);
 }
 
@@ -123,6 +127,78 @@ function getField(row, ...names) {
     }
   }
   return '';
+}
+
+// ---------- Dropbox (optionele automatische kopie van foto's) ----------
+function sanitizeForPath(s) {
+  return String(s || '')
+    .normalize('NFKD')
+    .replace(/[^\w\- ]+/g, '')
+    .trim()
+    .replace(/\s+/g, '-') || 'onbekend';
+}
+let dropboxAccessToken = null;
+let dropboxTokenExpiry = 0;
+async function getDropboxAccessToken() {
+  if (!process.env.DROPBOX_APP_KEY || !process.env.DROPBOX_APP_SECRET || !process.env.DROPBOX_REFRESH_TOKEN) return null;
+  if (dropboxAccessToken && Date.now() < dropboxTokenExpiry - 60000) return dropboxAccessToken;
+  const params = new URLSearchParams({
+    grant_type: 'refresh_token',
+    refresh_token: process.env.DROPBOX_REFRESH_TOKEN,
+    client_id: process.env.DROPBOX_APP_KEY,
+    client_secret: process.env.DROPBOX_APP_SECRET
+  });
+  const r = await fetch('https://api.dropboxapi.com/oauth2/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: params.toString()
+  });
+  if (!r.ok) throw new Error('Dropbox token-vernieuwing mislukt (' + r.status + ')');
+  const json = await r.json();
+  dropboxAccessToken = json.access_token;
+  dropboxTokenExpiry = Date.now() + json.expires_in * 1000;
+  return dropboxAccessToken;
+}
+async function uploadToDropbox(dropboxPath, buffer) {
+  const token = await getDropboxAccessToken();
+  if (!token) return; // Dropbox niet geconfigureerd: gewoon overslaan
+  const r = await fetch('https://content.dropboxapi.com/2/files/upload', {
+    method: 'POST',
+    headers: {
+      Authorization: 'Bearer ' + token,
+      'Dropbox-API-Arg': JSON.stringify({ path: dropboxPath, mode: 'add', autorename: true, mute: true }),
+      'Content-Type': 'application/octet-stream'
+    },
+    body: buffer
+  });
+  if (!r.ok) {
+    const text = await r.text().catch(() => '');
+    throw new Error('Dropbox-upload mislukt (' + r.status + '): ' + text);
+  }
+}
+
+// ---------- E-mail versturen via Resend (optioneel) ----------
+function escapeHtmlServer(s) {
+  return String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+async function sendEmail(to, subject, html) {
+  if (!process.env.RESEND_API_KEY || !process.env.RESEND_FROM_EMAIL) {
+    const err = new Error('E-mail verzenden is niet geconfigureerd');
+    err.notConfigured = true;
+    throw err;
+  }
+  const r = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: 'Bearer ' + process.env.RESEND_API_KEY,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ from: process.env.RESEND_FROM_EMAIL, to, subject, html })
+  });
+  if (!r.ok) {
+    const text = await r.text().catch(() => '');
+    throw new Error('Verzenden mislukt (' + r.status + '): ' + text);
+  }
 }
 
 function auth(req, res, next) {
@@ -318,7 +394,25 @@ app.post('/api/deliveries/:id/photos', auth, async (req, res) => {
     'INSERT INTO photos(delivery_id, naam, data_url) VALUES ($1,$2,$3) RETURNING id, naam, data_url AS "dataUrl"',
     [req.params.id, naam || '', dataUrl]
   );
-  res.json(ins.rows[0]);
+  const photo = ins.rows[0];
+  res.json(photo);
+
+  // Best-effort kopie naar Dropbox, ná het antwoord — mag de app nooit vertragen of blokkeren
+  (async () => {
+    try {
+      const delRes = await pool.query('SELECT data FROM deliveries WHERE id=$1', [req.params.id]);
+      if (delRes.rows.length === 0) return;
+      const delivery = delRes.rows[0].data;
+      const base64 = (dataUrl || '').split(',')[1];
+      if (!base64) return;
+      const buffer = Buffer.from(base64, 'base64');
+      const folder = sanitizeForPath(delivery.datum || 'ongedateerd') + '_' + sanitizeForPath(delivery.klant);
+      const dropboxPath = '/' + folder + '/foto-' + photo.id + '.jpg';
+      await uploadToDropbox(dropboxPath, buffer);
+    } catch (e) {
+      console.error('Dropbox-kopie mislukt:', e.message);
+    }
+  })();
 });
 app.delete('/api/deliveries/:deliveryId/photos/:photoId', auth, async (req, res) => {
   await pool.query('DELETE FROM photos WHERE id=$1 AND delivery_id=$2', [req.params.photoId, req.params.deliveryId]);
@@ -343,6 +437,49 @@ app.get('/api/locations', auth, adminOnly, async (req, res) => {
      ORDER BY l.updated_at DESC`
   );
   res.json(r.rows);
+});
+
+// ---------- Instellingen (bv. Google review-link) ----------
+app.get('/api/settings', auth, async (req, res) => {
+  const r = await pool.query('SELECT key, value FROM app_settings');
+  const settings = {};
+  r.rows.forEach(row => { settings[row.key] = row.value; });
+  res.json(settings);
+});
+app.put('/api/settings', auth, adminOnly, async (req, res) => {
+  const updates = req.body || {};
+  for (const key of Object.keys(updates)) {
+    await pool.query(
+      `INSERT INTO app_settings(key, value) VALUES ($1,$2)
+       ON CONFLICT (key) DO UPDATE SET value=$2`,
+      [key, updates[key]]
+    );
+  }
+  res.json({ ok: true });
+});
+
+app.post('/api/deliveries/:id/send-review-email', auth, async (req, res) => {
+  try {
+    const r = await pool.query('SELECT data FROM deliveries WHERE id=$1', [req.params.id]);
+    if (r.rows.length === 0) return res.status(404).json({ error: 'Levering niet gevonden' });
+    const d = r.rows[0].data;
+    if (!d.email) return res.status(400).json({ error: 'Geen e-mailadres bekend voor deze klant' });
+
+    const settingsRes = await pool.query("SELECT value FROM app_settings WHERE key='googleReviewUrl'");
+    const reviewUrl = settingsRes.rows[0] ? settingsRes.rows[0].value : '';
+    if (!reviewUrl) return res.status(400).json({ error: 'Stel eerst een Google review-link in bij Team → Instellingen' });
+
+    const klant = escapeHtmlServer(d.klant);
+    const html = `<p>Hallo ${klant},</p>
+      <p>Bedankt om voor Belair-Fun te kiezen! Zou je ons een Google review willen geven?</p>
+      <p><a href="${reviewUrl}">${reviewUrl}</a></p>
+      <p>Met vriendelijke groeten,<br>Belair-Fun</p>`;
+
+    await sendEmail(d.email, 'Bedankt van Belair-Fun!', html);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(e.notConfigured ? 501 : 502).json({ error: e.message, notConfigured: !!e.notConfigured });
+  }
 });
 
 app.get('*', (req, res) => {

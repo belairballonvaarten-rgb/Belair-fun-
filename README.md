@@ -85,6 +85,94 @@ manier (Stap 1, bestanden overschrijven in de bestaande repository — GitHub
 vraagt of je wil vervangen). Render herbouwt en herstart de app dan automatisch
 binnen enkele minuten.
 
+## Foto's automatisch kopiëren naar Dropbox (optioneel)
+
+De app slaat foto's altijd op in de database, zodat ze in de app zelf en in
+het PDF-verslag blijven werken. Wil je daarnaast automatisch een kopie in je
+eigen Dropbox, doorloop dan éénmalig deze stappen.
+
+### 1. Maak een Dropbox-app aan
+1. Ga naar https://www.dropbox.com/developers/apps → **Create app**.
+2. Kies **Scoped access**.
+3. Kies als toegangstype **App folder** (de app krijgt dan enkel toegang tot
+   zijn eigen mapje in jouw Dropbox, niet tot de rest van je bestanden).
+4. Geef een naam, bv. `belair-fun-fotos` (moet uniek zijn — voeg iets toe als
+   de naam al bestaat). Klik **Create app**.
+
+### 2. Zet de juiste rechten aan
+1. Ga naar het tabblad **Permissions** van je nieuwe app.
+2. Vink **files.content.write** aan.
+3. Klik onderaan op **Submit**.
+
+### 3. Noteer je App key en App secret
+Ga naar het tabblad **Settings** en kopieer **App key** en **App secret**.
+
+### 4. Vraag een eenmalige toestemmingscode aan
+Vervang `APP_KEY` in onderstaande link door je eigen App key, en open de link
+in je browser terwijl je in Dropbox bent ingelogd:
+
+```
+https://www.dropbox.com/oauth2/authorize?client_id=APP_KEY&token_access_type=offline&response_type=code
+```
+
+Klik **Allow**. Dropbox toont je een code — kopieer die.
+
+### 5. Wissel de code in voor een refresh-token
+Open een terminal (Mac: Terminal-app, Windows: PowerShell — beide hebben
+`curl` ingebouwd) en voer dit uit, met je eigen gegevens ingevuld:
+
+```
+curl https://api.dropboxapi.com/oauth2/token -d code=PLAK_JE_CODE -d grant_type=authorization_code -d client_id=PLAK_APP_KEY -d client_secret=PLAK_APP_SECRET
+```
+
+Je krijgt een antwoord terug met daarin `"refresh_token": "..."` — kopieer
+die waarde. Dit is de enige keer dat je deze stap moet doen; deze token
+verloopt niet.
+
+### 6. Vul in bij Render
+Ga naar je Web Service → **Environment** en voeg toe:
+- `DROPBOX_APP_KEY` = je App key
+- `DROPBOX_APP_SECRET` = je App secret
+- `DROPBOX_REFRESH_TOKEN` = de refresh-token uit stap 5
+
+Sla op, wacht op de herdeploy. Vanaf nu verschijnt elke nieuwe foto ook
+automatisch in je Dropbox, in een map per leverdatum en klantnaam. Bestaande
+foto's van vóór deze koppeling worden niet met terugwerkende kracht
+gekopieerd.
+
+## Automatisch e-mails versturen (bv. Google review-verzoek)
+
+Zonder verdere instelling opent de "Verstuur via e-mail"-knop gewoon de
+mail-app van de gebruiker (zoals nu). Wil je dat de app de mail **zelf en
+automatisch** verstuurt zodra je op de knop drukt, koppel dan Resend
+(gratis tot 3.000 mails/maand):
+
+### 1. Maak een Resend-account
+Ga naar https://resend.com en maak een gratis account.
+
+### 2. Maak een API-sleutel
+Ga naar **API Keys** in het Resend-dashboard → **Create API Key**. Kopieer
+de sleutel meteen (je ziet hem maar één keer).
+
+### 3. Regel een verzendadres
+De eenvoudigste weg: verifieer je eigen domein bij Resend (**Domains** →
+**Add Domain**, en voeg de getoonde DNS-records toe bij je domeinregistrar
+— bv. Combell, als je daar je domeinnaam beheert). Zodra geverifieerd, kan
+je bv. `noreply@belairfun.be` als verzendadres gebruiken. Domeinverificatie
+kan tot 24u duren.
+
+Nog geen zin om dat nu te doen? Dan kan je Resend's eigen testadres
+proberen, maar controleer zelf in de Resend-documentatie wat daarvoor op
+dit moment de voorwaarden zijn — dat kan wijzigen.
+
+### 4. Vul in bij Render
+Ga naar je Web Service → **Environment** en voeg toe:
+- `RESEND_API_KEY` = je API-sleutel uit stap 2
+- `RESEND_FROM_EMAIL` = het verzendadres uit stap 3 (bv. `Belair-Fun <noreply@belairfun.be>`)
+
+Sla op, wacht op de herdeploy. De "Verstuur via e-mail"-knop verstuurt vanaf
+nu automatisch, zonder dat er een mail-app moet opengaan.
+
 ## Logo wijzigen
 
 Het logo staat in `public/logo.png`. Wil je het later vervangen: upload gewoon
