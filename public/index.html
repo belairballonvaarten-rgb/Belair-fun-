@@ -754,7 +754,7 @@ let perDriverDate = todayISO();
 function renderUnassigned(){
   const openLeveringen = deliveries.filter(d => d.status === 'te-leveren' && !d.toegewezenAan && d.datum === perDriverDate)
     .sort((a,b)=> sortKeyFor(a,'tijdslot') - sortKeyFor(b,'tijdslot'));
-  const openAfhalingen = deliveries.filter(d => d.status === 'geplaatst' && !d.toegewezenAanAfhaling && (d.afhaaldatum || d.datum) === perDriverDate)
+  const openAfhalingen = deliveries.filter(d => d.status !== 'afgerond' && !d.toegewezenAanAfhaling && (d.afhaaldatum || d.datum) === perDriverDate)
     .sort((a,b)=> sortKeyFor(a,'afhaaltijd') - sortKeyFor(b,'afhaaltijd'));
   if(openLeveringen.length === 0 && openAfhalingen.length === 0){
     return `<div class="queue-note" style="text-align:left">✓ Niets onbeheerd op deze dag.</div>`;
