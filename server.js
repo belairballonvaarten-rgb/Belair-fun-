@@ -67,7 +67,7 @@ function emptyDeliveryServer() {
     klant: '', telefoon: '', email: '', adres: '', postcode: '', ondergrond: '',
     datum: '', tijdslot: '',
     afhaaldatum: '', afhaaltijd: '',
-    artikelen: '', bedrag: '',
+    artikelen: '', bedrag: '', boekingsnummer: '',
     status: 'te-leveren',
     toegewezenAan: null,
     toegewezenAanAfhaling: null,
@@ -233,6 +233,7 @@ app.post('/api/import', auth, adminOnly, async (req, res) => {
   }
 
   let imported = 0;
+  let updated = 0;
   const skipped = [];
 
   for (let i = 0; i < rows.length; i++) {
@@ -249,6 +250,7 @@ app.post('/api/import', auth, adminOnly, async (req, res) => {
     const stad = getField(row, 'Delivery Town', 'Gemeente', 'Town');
     const postcode = getField(row, 'Delivery Postcode', 'Postcode');
     const adres = [adres1, [postcode, stad].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+    const boekingsnummer = getField(row, 'Booking Number', 'Boekingsnummer', 'Booking Nr', 'Order Number', 'Ordernummer', 'Reference', 'Referentie', 'Boeking');
 
     const d = emptyDeliveryServer();
     d.klant = klant;
@@ -264,17 +266,35 @@ app.post('/api/import', auth, adminOnly, async (req, res) => {
     d.afhaaltijd = normalizeTime(getField(row, 'Collection', 'Afhaaltijd'));
     d.artikelen = getField(row, 'Item', 'Artikelen');
     d.bedrag = getField(row, 'Balance', 'Bedrag', 'Saldo');
+    d.boekingsnummer = boekingsnummer;
     d.plaatsing.tijdstip = '';
 
     try {
-      await pool.query('INSERT INTO deliveries(id, data, created_by) VALUES ($1,$2,$3)', [d.id, d, req.user.id]);
-      imported++;
+      let existing = null;
+      if (boekingsnummer) {
+        const r = await pool.query("SELECT id, data FROM deliveries WHERE data->>'boekingsnummer' = $1 AND data->>'boekingsnummer' <> ''", [boekingsnummer]);
+        if (r.rows.length > 0) existing = r.rows[0];
+      }
+      if (existing) {
+        // Boeking bestaat al: enkel de planninggegevens bijwerken, checklists/status/toewijzing blijven behouden
+        const merged = {
+          ...existing.data,
+          klant: d.klant, telefoon: d.telefoon, email: d.email, adres: d.adres, postcode: d.postcode,
+          ondergrond: d.ondergrond, datum: d.datum, tijdslot: d.tijdslot, afhaaldatum: d.afhaaldatum,
+          afhaaltijd: d.afhaaltijd, artikelen: d.artikelen, bedrag: d.bedrag, boekingsnummer: d.boekingsnummer
+        };
+        await pool.query('UPDATE deliveries SET data=$1, updated_at=now() WHERE id=$2', [merged, existing.id]);
+        updated++;
+      } else {
+        await pool.query('INSERT INTO deliveries(id, data, created_by) VALUES ($1,$2,$3)', [d.id, d, req.user.id]);
+        imported++;
+      }
     } catch (e) {
       skipped.push({ rij: i + 2, reden: 'Kon niet opgeslagen worden' });
     }
   }
 
-  res.json({ imported, skipped });
+  res.json({ imported, updated, skipped });
 });
 
 // ---------- Foto's ----------
