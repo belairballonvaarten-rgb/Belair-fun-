@@ -18,6 +18,7 @@
   --accent:#E8631E;
   --accent-dim:#B94F19;
   --ok:#2F9E7A;
+  --wacht:#3B82F6;
   --warn:#D9A441;
   --danger:#D2564F;
   --radius:4px;
@@ -99,6 +100,34 @@ main{flex:1;padding:16px;}
 .tabbar svg{width:20px;height:20px;}
 
 /* Delivery list */
+.section-label{
+  font-family:'Barlow Condensed',sans-serif;
+  font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;
+  color:var(--text-dim);
+  margin:14px 2px 8px;
+  display:flex;align-items:center;gap:6px;
+}
+.section-label::before{content:'';width:8px;height:8px;border-radius:50%;display:inline-block;}
+.section-label.te-leveren-label::before{background:var(--accent);}
+.section-label.op-te-halen-label::before{background:var(--wacht);}
+.section-label.afgerond-label::before{background:var(--ok);}
+.next-pickup-banner{
+  background:rgba(59,130,246,0.12);
+  border:1px solid rgba(59,130,246,0.4);
+  color:var(--wacht);
+  font-size:13px;font-weight:600;
+  padding:10px 12px;border-radius:var(--radius);
+  margin-bottom:12px;
+}
+.reorder-row{display:flex;gap:6px;margin-top:8px;}
+.reorder-btn{
+  background:var(--panel-alt);border:1px solid var(--line);color:var(--text-dim);
+  width:30px;height:26px;border-radius:var(--radius);
+  display:flex;align-items:center;justify-content:center;font-size:11px;cursor:pointer;
+}
+.reorder-btn:active{background:var(--line);}
+.star-badge{color:var(--warn);font-size:14px;}
+.brand-logo-img{max-height:30px;max-width:170px;display:block;object-fit:contain;}
 .day-group{margin-bottom:22px;}
 .day-group h2{
   font-size:16px;
@@ -117,8 +146,8 @@ main{flex:1;padding:16px;}
   cursor:pointer;
 }
 .card.status-te-leveren{border-left-color:var(--accent);}
-.card.status-geplaatst{border-left-color:var(--warn);}
-.card.status-afgerond{border-left-color:var(--ok);}
+.card.status-geplaatst{border-left-color:var(--wacht);}
+.card.status-afgerond{border-left-color:var(--ok);opacity:0.72;}
 .card .row1{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;}
 .card .klant{font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:18px;}
 .card .tijd{font-size:13px;color:var(--text-dim);white-space:nowrap;}
@@ -134,7 +163,7 @@ main{flex:1;padding:16px;}
   letter-spacing:0.3px;
 }
 .badge.te-leveren{background:rgba(232,99,30,0.18);color:var(--accent);}
-.badge.geplaatst{background:rgba(217,164,65,0.18);color:var(--warn);}
+.badge.geplaatst{background:rgba(59,130,246,0.18);color:var(--wacht);}
 .badge.afgerond{background:rgba(47,158,122,0.18);color:var(--ok);}
 
 .card.card-mine{border-left-color:var(--accent);background:linear-gradient(90deg, rgba(232,99,30,0.08), var(--panel) 40%);}
@@ -370,7 +399,10 @@ button{font-family:'Inter',sans-serif;}
 <body>
 <div id="authScreen" style="display:none">
   <div class="auth-wrap">
-    <div class="brand" style="font-size:28px;margin-bottom:4px">Belair<span class="dot">·</span>Fun</div>
+    <div class="brand-wrap" style="margin-bottom:4px">
+      <img src="/logo.png" alt="Belair-Fun" class="brand-logo-img" onerror="this.style.display='none'; this.nextElementSibling.style.display='';">
+      <div class="brand" style="font-size:28px;display:none">Belair<span class="dot">·</span>Fun</div>
+    </div>
     <div id="authSub" class="sub" style="margin-bottom:22px">Leveringen &amp; planning</div>
     <div id="authForm"></div>
   </div>
@@ -379,7 +411,8 @@ button{font-family:'Inter',sans-serif;}
 <div id="app" style="display:none">
   <div class="topbar">
     <div>
-      <div class="brand">Belair<span class="dot">·</span>Fun</div>
+      <img src="/logo.png" alt="Belair-Fun" class="brand-logo-img" onerror="this.style.display='none'; this.nextElementSibling.style.display='';">
+      <div class="brand" style="display:none">Belair<span class="dot">·</span>Fun</div>
       <div class="sub" id="topbarSub">Leveringen</div>
     </div>
     <div id="topbarAction"></div>
@@ -496,6 +529,13 @@ function escapeHtml(s){
   return (s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
+function normalizeOndergrond(v){
+  if(!v) return '';
+  const s = String(v).toLowerCase();
+  if(s.includes('hard')) return 'Harde ondergrond';
+  if(s.includes('gras') || s.includes('grass')) return 'Op gras';
+  return v;
+}
 function emptyDelivery(){
   return {
     id: uid(),
@@ -505,9 +545,10 @@ function emptyDelivery(){
     artikelen: '', bedrag: '',
     status: 'te-leveren',
     toegewezenAan: null, // { id, naam } of null = voor alle chauffeurs
+    handmatigeVolgorde: null, // getal = manueel bepaalde positie in de planning
     plaatsing: {
       correctGeplaatst: false,
-      bevestiging: '', // pinnen | zandzakken | geen
+      bevestiging: '', // pinnen | zandzakken | verankering | geen
       valmatten: false,
       verlengkabel: false,
       aantalKabels: '',
@@ -521,6 +562,7 @@ function emptyDelivery(){
     afhaling: {
       valmattenTerug: false,
       kabelsTerug: false,
+      bevestigingTerug: false, // pinnen/zandzakken/verankering terug mee, afhankelijk van plaatsing.bevestiging
       natOfVuil: false,
       reinigingNodig: false,
       opmerkingen: '',
@@ -648,11 +690,57 @@ async function refreshTeamList(){
 
 // ---------- LIST VIEW ----------
 let listFilter = 'alle'; // 'alle' | 'mij'
+let typeFilter = 'alle'; // 'alle' | 'leveringen' | 'afhalingen'
+let renderedSections = {}; // sectionKey -> geordende array van delivery-ids (voor omhoog/omlaag knoppen)
+
+function timeMinutes(str){
+  if(!str) return null;
+  const m = String(str).match(/(\d{1,2}):(\d{2})/);
+  if(!m) return null;
+  return parseInt(m[1],10)*60 + parseInt(m[2],10);
+}
+function sortKeyFor(d, timeField){
+  if(d.handmatigeVolgorde != null) return d.handmatigeVolgorde;
+  const mins = timeMinutes(d[timeField]);
+  return 100000 + (mins != null ? mins : 9999);
+}
+function cardHtml(d, extraClass){
+  const forMe = d.toegewezenAan && d.toegewezenAan.id === currentUser.id;
+  const assignLabel = forMe
+    ? `<span class="assign-badge mine">Voor jou</span>`
+    : d.toegewezenAan
+      ? `<span class="assign-badge other">→ ${escapeHtml(d.toegewezenAan.naam)}</span>`
+      : `<span class="assign-badge open">Alle chauffeurs</span>`;
+  const factuurStar = (currentUser.rol === 'admin' && d.betaling.status === 'factuur') ? `<span class="star-badge" title="Nog te factureren">★</span>` : '';
+  const tijdWeergave = d.status === 'te-leveren' ? d.tijdslot : (d.status === 'geplaatst' ? d.afhaaltijd : d.tijdslot);
+  return `<div class="card status-${d.status} ${forMe?'card-mine':''}" data-id="${d.id}">
+    <div class="row1">
+      <div>
+        <div class="klant">${escapeHtml(d.klant || 'Naamloos')} ${factuurStar}</div>
+        <div class="adres">${escapeHtml(d.adres || 'Geen adres')}</div>
+      </div>
+      <div class="tijd">${escapeHtml(tijdWeergave || '')}</div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px">
+      <span class="badge ${d.status}" style="margin-top:0">${STATUS_LABEL[d.status]}</span>
+      ${assignLabel}
+    </div>
+    ${extraClass ? `<div class="reorder-row" data-section="${extraClass}">
+      <span class="reorder-btn" data-dir="up" data-id="${d.id}">▲</span>
+      <span class="reorder-btn" data-dir="down" data-id="${d.id}">▼</span>
+    </div>` : ''}
+  </div>`;
+}
 function renderList(){
   const filterBar = `
-    <div class="pillgroup" id="list-filter-pills" style="margin-bottom:16px">
+    <div class="pillgroup" id="list-filter-pills" style="margin-bottom:10px">
       <span class="pill ${listFilter==='alle'?'active':''}" data-val="alle">Alles</span>
       <span class="pill ${listFilter==='mij'?'active':''}" data-val="mij">Voor mij</span>
+    </div>
+    <div class="pillgroup" id="type-filter-pills" style="margin-bottom:16px">
+      <span class="pill ${typeFilter==='alle'?'active':''}" data-val="alle">Alles</span>
+      <span class="pill ${typeFilter==='leveringen'?'active':''}" data-val="leveringen">Leveringen</span>
+      <span class="pill ${typeFilter==='afhalingen'?'active':''}" data-val="afhalingen">Afhalingen</span>
     </div>
   `;
   const visible = listFilter === 'mij'
@@ -668,50 +756,104 @@ function renderList(){
   if(visible.length === 0){
     return filterBar + `<div class="empty"><div class="big">Niets voor jou toegewezen</div>Bekijk "Alles" om de volledige planning te zien.</div>`;
   }
+
+  renderedSections = {};
   const groups = {};
-  const sorted = [...visible].sort((a,b)=> (a.datum||'').localeCompare(b.datum||''));
-  sorted.forEach(d=>{
-    const key = d.status === 'afgerond' ? (d.afhaaldatum || d.datum || 'Onbekend') : (d.datum || 'Onbekend');
+  visible.forEach(d=>{
+    const key = (d.status === 'geplaatst' || d.status === 'afgerond') ? (d.afhaaldatum || d.datum || 'Onbekend') : (d.datum || 'Onbekend');
     if(!groups[key]) groups[key] = [];
     groups[key].push(d);
   });
+
   let html = filterBar;
+  let anyDayShown = false;
   Object.keys(groups).sort().forEach(dateKey=>{
+    const items = groups[dateKey];
+    let teLeveren = items.filter(d => d.status === 'te-leveren').sort((a,b)=> sortKeyFor(a,'tijdslot') - sortKeyFor(b,'tijdslot'));
+    let opTeHalen = items.filter(d => d.status === 'geplaatst').sort((a,b)=> sortKeyFor(a,'afhaaltijd') - sortKeyFor(b,'afhaaltijd'));
+    let afgerond = items.filter(d => d.status === 'afgerond').sort((a,b)=> sortKeyFor(a,'afhaaltijd') - sortKeyFor(b,'afhaaltijd'));
+
+    if(typeFilter === 'leveringen'){ opTeHalen = []; afgerond = []; }
+    if(typeFilter === 'afhalingen'){ teLeveren = []; afgerond = []; }
+
+    if(teLeveren.length === 0 && opTeHalen.length === 0 && afgerond.length === 0) return;
+    anyDayShown = true;
+
+    const teLeverenKey = dateKey + '|te-leveren';
+    const opTeHalenKey = dateKey + '|geplaatst';
+    renderedSections[teLeverenKey] = teLeveren.map(d=>d.id);
+    renderedSections[opTeHalenKey] = opTeHalen.map(d=>d.id);
+
     html += `<div class="day-group"><h2>${dateKey===todayISO() ? 'Vandaag — ' : ''}${fmtDate(dateKey)}</h2>`;
-    groups[dateKey].forEach(d=>{
-      const forMe = d.toegewezenAan && d.toegewezenAan.id === currentUser.id;
-      const assignLabel = forMe
-        ? `<span class="assign-badge mine">Voor jou</span>`
-        : d.toegewezenAan
-          ? `<span class="assign-badge other">→ ${escapeHtml(d.toegewezenAan.naam)}</span>`
-          : `<span class="assign-badge open">Alle chauffeurs</span>`;
-      html += `<div class="card status-${d.status} ${forMe?'card-mine':''}" data-id="${d.id}">
-        <div class="row1">
-          <div>
-            <div class="klant">${escapeHtml(d.klant || 'Naamloos')}</div>
-            <div class="adres">${escapeHtml(d.adres || 'Geen adres')}</div>
-          </div>
-          <div class="tijd">${escapeHtml(d.tijdslot || '')}</div>
-        </div>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px">
-          <span class="badge ${d.status}" style="margin-top:0">${STATUS_LABEL[d.status]}</span>
-          ${assignLabel}
-        </div>
-      </div>`;
-    });
+
+    if(typeFilter !== 'leveringen' && teLeveren.length === 0 && opTeHalen.length > 0){
+      const eerste = opTeHalen[0];
+      html += `<div class="next-pickup-banner">🕐 Alle leveringen gebeurd — eerstvolgende afhaling: <b>${escapeHtml(eerste.afhaaltijd || '?')} bij ${escapeHtml(eerste.klant)}</b></div>`;
+    }
+
+    if(teLeveren.length){
+      html += `<div class="section-label te-leveren-label">Te leveren</div>`;
+      teLeveren.forEach(d => html += cardHtml(d, teLeverenKey));
+    }
+    if(opTeHalen.length){
+      html += `<div class="section-label op-te-halen-label">Op te halen</div>`;
+      opTeHalen.forEach(d => html += cardHtml(d, opTeHalenKey));
+    }
+    if(afgerond.length){
+      html += `<div class="section-label afgerond-label">Afgerond</div>`;
+      afgerond.forEach(d => html += cardHtml(d, ''));
+    }
     html += `</div>`;
   });
+  if(!anyDayShown){
+    html += `<div class="empty"><div class="big">Niets gevonden</div>Probeer een andere filtercombinatie.</div>`;
+  }
   return html;
+}
+function moveCard(sectionKey, id, dir){
+  const order = renderedSections[sectionKey];
+  if(!order) return;
+  const idx = order.indexOf(id);
+  const swapWith = dir === 'up' ? idx - 1 : idx + 1;
+  if(idx < 0 || swapWith < 0 || swapWith >= order.length) return;
+  [order[idx], order[swapWith]] = [order[swapWith], order[idx]];
+  const changed = [];
+  order.forEach((did, i)=>{
+    const d = getDelivery(did);
+    if(d && d.handmatigeVolgorde !== i){
+      d.handmatigeVolgorde = i;
+      changed.push(d);
+    }
+  });
+  render();
+  Promise.all(changed.map(d => saveDeliveries(d).catch(err=>showToast(err.message))));
 }
 function bindListEvents(){
   document.querySelectorAll('.card').forEach(c=>{
     c.addEventListener('click', ()=> setView('detail', c.dataset.id));
+  });
+  document.querySelectorAll('.reorder-btn').forEach(btn=>{
+    btn.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      const sectionKey = btn.closest('.reorder-row').dataset.section;
+      if(!sectionKey) return;
+      moveCard(sectionKey, btn.dataset.id, btn.dataset.dir);
+    });
   });
   const filterPills = document.getElementById('list-filter-pills');
   if(filterPills){
     filterPills.querySelectorAll('.pill').forEach(p=>{
       p.addEventListener('click', ()=>{
         listFilter = p.dataset.val;
+        render();
+      });
+    });
+  }
+  const typePills = document.getElementById('type-filter-pills');
+  if(typePills){
+    typePills.querySelectorAll('.pill').forEach(p=>{
+      p.addEventListener('click', ()=>{
+        typeFilter = p.dataset.val;
         render();
       });
     });
@@ -747,6 +889,14 @@ function renderNewForm(){
       <div class="field"><label>Tijdslot</label><input type="text" id="f-tijdslot" placeholder="Bv. 09:00 - 10:00"></div>
     </div>
     <div class="field"><label>Artikelen</label><textarea id="f-artikelen" placeholder="Bv. Springkasteel Draak XL + suikerspinmachine"></textarea></div>
+    <div class="field">
+      <label>Ondergrond</label>
+      <select id="f-ondergrond">
+        <option value="">Onbekend</option>
+        <option value="Op gras">Op gras</option>
+        <option value="Harde ondergrond">Harde ondergrond</option>
+      </select>
+    </div>
   </div>
   <div class="section">
     <h3>Afhaling</h3>
@@ -803,6 +953,8 @@ function bindNewFormEvents(){
     d.artikelen = document.getElementById('f-artikelen').value.trim();
     d.afhaaldatum = document.getElementById('f-afhaaldatum').value;
     d.afhaaltijd = document.getElementById('f-afhaaltijd').value;
+    d.ondergrond = document.getElementById('f-ondergrond').value;
+    if(d.ondergrond === 'Harde ondergrond') d.plaatsing.valmatten = true;
     d.plaatsing.tijdstip = d.afhaaltijd;
     deliveries.push(d);
     try{
@@ -871,7 +1023,7 @@ function renderDetail(d){
     ${d.artikelen ? `<div class="field" style="margin-bottom:8px"><div style="font-size:14px">${escapeHtml(d.artikelen)}</div></div>` : ''}
     <div class="two-col" style="font-size:13px;color:var(--text-dim)">
       ${d.bedrag ? `<div>💶 Te ontvangen: <b style="color:var(--text)">€ ${escapeHtml(d.bedrag)}</b></div>` : ''}
-      ${d.ondergrond ? `<div>🌱 Ondergrond: <b style="color:var(--text)">${escapeHtml(d.ondergrond)}</b></div>` : ''}
+      ${d.ondergrond ? `<div>🌱 Ondergrond: <b style="color:var(--text)">${escapeHtml(normalizeOndergrond(d.ondergrond))}</b></div>` : ''}
     </div>
   </div>` : ''}
 
@@ -885,7 +1037,7 @@ function renderDetail(d){
 
   <div class="section">
     <h3>Checklist bij plaatsing</h3>
-    ${d.ondergrond ? `<div class="queue-note" style="margin-bottom:12px;text-align:left">Ondergrond volgens planning: <b>${escapeHtml(d.ondergrond)}</b>${/hard/i.test(d.ondergrond) ? ' — gebruik zandzakken, geen pinnen.' : ''}</div>` : ''}
+    ${d.ondergrond ? `<div class="queue-note" style="margin-bottom:12px;text-align:left">Ondergrond volgens planning: <b>${escapeHtml(normalizeOndergrond(d.ondergrond))}</b></div>` : ''}
     ${d.plaatsing.bevestigd ? `<div class="locked-banner">✓ Levering bevestigd — ${fmtDateTime(d.plaatsing.bevestigdOp)}</div>` : ''}
     <div class="${d.plaatsing.bevestigd ? 'locked-block' : ''}">
       ${renderPlaatsingChecklist(d)}
@@ -954,17 +1106,22 @@ function checkRow(id, label, sub, checked){
 
 function renderPlaatsingChecklist(d){
   const p = d.plaatsing;
+  const isHard = normalizeOndergrond(d.ondergrond) === 'Harde ondergrond';
+  const bevestigingOpties = isHard
+    ? [['zandzakken','Zandzakken'],['verankering','Verankering'],['geen','Geen']]
+    : [['pinnen','Pinnen'],['zandzakken','Zandzakken'],['verankering','Verankering'],['geen','Geen']];
   return `
+    ${isHard ? `<div class="queue-note" style="margin-bottom:12px;text-align:left;border-color:rgba(217,164,65,0.5);color:var(--warn)">
+      Harde ondergrond: valmatten zijn verplicht, gebruik zandzakken of verankering — geen pinnen.
+    </div>` : ''}
     ${checkRow('chk-correct','Springkasteel correct geplaatst','', p.correctGeplaatst)}
     <div class="check-row" style="border-bottom:none;flex-direction:column;align-items:flex-start;gap:8px;">
       <div class="txt">Bevestiging</div>
       <div class="pillgroup" id="bevestiging-pills">
-        ${pill('pinnen','Pinnen', p.bevestiging)}
-        ${pill('zandzakken','Zandzakken', p.bevestiging)}
-        ${pill('geen','Geen', p.bevestiging)}
+        ${bevestigingOpties.map(([val,label]) => pill(val,label,p.bevestiging)).join('')}
       </div>
     </div>
-    ${checkRow('chk-valmatten','Valmatten gebruikt','', p.valmatten)}
+    ${checkRow('chk-valmatten','Valmatten gebruikt', isHard ? 'Verplicht op harde ondergrond' : '', p.valmatten)}
     ${checkRow('chk-kabel','Verlengkabel gebruikt','', p.verlengkabel)}
     <div class="field" id="aantal-kabels-wrap" style="${p.verlengkabel?'':'display:none'};margin-top:8px">
       <label>Aantal verlengkabels</label>
@@ -978,11 +1135,17 @@ function renderPlaatsingChecklist(d){
   `;
 }
 
+function bevestigingLabel(val){
+  return val === 'pinnen' ? 'Pinnen' : val === 'zandzakken' ? 'Zandzakken' : val === 'verankering' ? 'Verankering' : '';
+}
+
 function renderAfhalingChecklist(d){
   const a = d.afhaling;
+  const p = d.plaatsing;
   return `
-    ${checkRow('chk-valmatten-terug','Valmatten terug mee','', a.valmattenTerug)}
-    ${checkRow('chk-kabels-terug','Verlengkabels terug mee','', a.kabelsTerug)}
+    ${p.valmatten ? checkRow('chk-valmatten-terug','Valmatten terug mee','', a.valmattenTerug) : ''}
+    ${p.verlengkabel ? checkRow('chk-kabels-terug', 'Verlengkabel' + (p.aantalKabels ? ' (' + escapeHtml(p.aantalKabels) + 'x)' : '') + ' terug mee','', a.kabelsTerug) : ''}
+    ${(p.bevestiging && p.bevestiging !== 'geen') ? checkRow('chk-bevestiging-terug', bevestigingLabel(p.bevestiging) + ' losgemaakt en terug mee','', a.bevestigingTerug) : ''}
     ${checkRow('chk-nat-vuil','Kasteel nat of vuil','', a.natOfVuil)}
     ${checkRow('chk-reiniging','Reiniging nodig','', a.reinigingNodig)}
     <div class="field" style="margin-top:10px">
@@ -1061,7 +1224,7 @@ function bindDetailEvents(d){
 
   // toggles
   ['chk-correct','chk-valmatten','chk-kabel','chk-netjes',
-   'chk-valmatten-terug','chk-kabels-terug','chk-nat-vuil','chk-reiniging'].forEach(id=>{
+   'chk-valmatten-terug','chk-kabels-terug','chk-bevestiging-terug','chk-nat-vuil','chk-reiniging'].forEach(id=>{
     const el = document.getElementById(id);
     if(!el) return;
     el.addEventListener('click', ()=>{
@@ -1180,30 +1343,38 @@ function bindDetailEvents(d){
   }
 }
 
+function checkedVal(id){
+  const el = document.getElementById(id);
+  return el ? el.dataset.checked === '1' : false;
+}
 function collectFromForm(d){
   d.afhaaldatum = document.getElementById('afhaaldatum').value;
   d.afhaaltijd = document.getElementById('afhaaltijd').value;
 
-  d.plaatsing.correctGeplaatst = document.getElementById('chk-correct').dataset.checked === '1';
+  d.plaatsing.correctGeplaatst = checkedVal('chk-correct');
   const bevestigingActive = document.querySelector('#bevestiging-pills .pill.active');
   d.plaatsing.bevestiging = bevestigingActive ? bevestigingActive.dataset.val : '';
-  d.plaatsing.valmatten = document.getElementById('chk-valmatten').dataset.checked === '1';
-  d.plaatsing.verlengkabel = document.getElementById('chk-kabel').dataset.checked === '1';
-  d.plaatsing.aantalKabels = document.getElementById('aantal-kabels').value;
-  d.plaatsing.netjes = document.getElementById('chk-netjes').dataset.checked === '1';
-  d.plaatsing.opmerkingen = document.getElementById('plaatsing-opmerkingen').value;
+  d.plaatsing.valmatten = checkedVal('chk-valmatten');
+  d.plaatsing.verlengkabel = checkedVal('chk-kabel');
+  const aantalKabelsEl = document.getElementById('aantal-kabels');
+  d.plaatsing.aantalKabels = aantalKabelsEl ? aantalKabelsEl.value : d.plaatsing.aantalKabels;
+  d.plaatsing.netjes = checkedVal('chk-netjes');
+  const plaatsingOpmEl = document.getElementById('plaatsing-opmerkingen');
+  d.plaatsing.opmerkingen = plaatsingOpmEl ? plaatsingOpmEl.value : d.plaatsing.opmerkingen;
   if(!d.plaatsing.tijdstip) d.plaatsing.tijdstip = new Date().toISOString();
 
   const betalingActive = document.querySelector('#betaling-pills .pill.active');
   d.betaling.status = betalingActive ? betalingActive.dataset.val : '';
   d.betaling.opmerking = document.getElementById('betaling-opmerking').value;
 
-  d.afhaling.valmattenTerug = document.getElementById('chk-valmatten-terug').dataset.checked === '1';
-  d.afhaling.kabelsTerug = document.getElementById('chk-kabels-terug').dataset.checked === '1';
-  d.afhaling.natOfVuil = document.getElementById('chk-nat-vuil').dataset.checked === '1';
-  d.afhaling.reinigingNodig = document.getElementById('chk-reiniging').dataset.checked === '1';
-  d.afhaling.opmerkingen = document.getElementById('afhaling-opmerkingen').value;
-  if((d.afhaling.valmattenTerug || d.afhaling.kabelsTerug || d.afhaling.opmerkingen) && !d.afhaling.tijdstip){
+  d.afhaling.valmattenTerug = checkedVal('chk-valmatten-terug');
+  d.afhaling.kabelsTerug = checkedVal('chk-kabels-terug');
+  d.afhaling.bevestigingTerug = checkedVal('chk-bevestiging-terug');
+  d.afhaling.natOfVuil = checkedVal('chk-nat-vuil');
+  d.afhaling.reinigingNodig = checkedVal('chk-reiniging');
+  const afhalingOpmEl = document.getElementById('afhaling-opmerkingen');
+  d.afhaling.opmerkingen = afhalingOpmEl ? afhalingOpmEl.value : d.afhaling.opmerkingen;
+  if((d.afhaling.valmattenTerug || d.afhaling.kabelsTerug || d.afhaling.bevestigingTerug || d.afhaling.opmerkingen) && !d.afhaling.tijdstip){
     d.afhaling.tijdstip = new Date().toISOString();
   }
 }
@@ -1269,7 +1440,7 @@ async function generateAndOfferPdf(d){
   line('E-mail', d.email);
   line('Leverdatum', fmtDate(d.datum) + (d.tijdslot ? ' — ' + d.tijdslot : ''));
   line('Artikelen', d.artikelen);
-  if(d.ondergrond) line('Ondergrond', d.ondergrond);
+  if(d.ondergrond) line('Ondergrond', normalizeOndergrond(d.ondergrond));
   if(d.bedrag) line('Te ontvangen', '€ ' + d.bedrag);
   y += 2;
 
@@ -1280,7 +1451,7 @@ async function generateAndOfferPdf(d){
 
   heading('Checklist bij plaatsing');
   checkline('Springkasteel correct geplaatst', d.plaatsing.correctGeplaatst);
-  line('Bevestiging', d.plaatsing.bevestiging === 'pinnen' ? 'Pinnen' : d.plaatsing.bevestiging === 'zandzakken' ? 'Zandzakken' : d.plaatsing.bevestiging === 'geen' ? 'Geen' : '—');
+  line('Bevestiging', bevestigingLabel(d.plaatsing.bevestiging) || (d.plaatsing.bevestiging === 'geen' ? 'Geen' : '—'));
   checkline('Valmatten gebruikt', d.plaatsing.valmatten);
   checkline('Verlengkabel gebruikt', d.plaatsing.verlengkabel);
   if(d.plaatsing.verlengkabel) line('Aantal verlengkabels', d.plaatsing.aantalKabels || '—');
@@ -1294,11 +1465,12 @@ async function generateAndOfferPdf(d){
   line('Opmerking', d.betaling.opmerking || '—');
   y += 2;
 
-  const hasAfhalingData = d.afhaling.valmattenTerug || d.afhaling.kabelsTerug || d.afhaling.natOfVuil || d.afhaling.reinigingNodig || d.afhaling.opmerkingen;
+  const hasAfhalingData = d.afhaling.valmattenTerug || d.afhaling.kabelsTerug || d.afhaling.bevestigingTerug || d.afhaling.natOfVuil || d.afhaling.reinigingNodig || d.afhaling.opmerkingen;
   if(hasAfhalingData){
     heading('Checklist bij afhaling');
-    checkline('Valmatten terug mee', d.afhaling.valmattenTerug);
-    checkline('Verlengkabels terug mee', d.afhaling.kabelsTerug);
+    if(d.plaatsing.valmatten) checkline('Valmatten terug mee', d.afhaling.valmattenTerug);
+    if(d.plaatsing.verlengkabel) checkline('Verlengkabel terug mee', d.afhaling.kabelsTerug);
+    if(d.plaatsing.bevestiging && d.plaatsing.bevestiging !== 'geen') checkline(bevestigingLabel(d.plaatsing.bevestiging) + ' terug mee', d.afhaling.bevestigingTerug);
     checkline('Kasteel nat of vuil', d.afhaling.natOfVuil);
     checkline('Reiniging nodig', d.afhaling.reinigingNodig);
     line('Opmerkingen', d.afhaling.opmerkingen || '—');
