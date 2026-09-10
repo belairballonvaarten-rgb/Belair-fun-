@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>Belair-Fun — Planning</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/favicon.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="theme-color" content="#1E2227">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Belair-Fun">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -700,6 +707,7 @@ function renderTeam(){
   </div>
   <div class="section">
     <h3>Nog toe te wijzen</h3>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">Voor de dag die je hierboven bij "Per chauffeur" hebt gekozen.</div>
     <div id="unassigned-list">Laden...</div>
   </div>
   <div class="section">
@@ -742,13 +750,14 @@ function miniRow(d, typeLabel){
     <span class="badge ${d.status}" style="margin-top:6px">${STATUS_LABEL[d.status]}</span>
   </div>`;
 }
+let perDriverDate = todayISO();
 function renderUnassigned(){
-  const openLeveringen = deliveries.filter(d => d.status === 'te-leveren' && !d.toegewezenAan)
-    .sort((a,b)=> (a.datum||'').localeCompare(b.datum||''));
-  const openAfhalingen = deliveries.filter(d => d.status === 'geplaatst' && !d.toegewezenAanAfhaling)
-    .sort((a,b)=> (a.afhaaldatum||a.datum||'').localeCompare(b.afhaaldatum||b.datum||''));
+  const openLeveringen = deliveries.filter(d => d.status === 'te-leveren' && !d.toegewezenAan && d.datum === perDriverDate)
+    .sort((a,b)=> sortKeyFor(a,'tijdslot') - sortKeyFor(b,'tijdslot'));
+  const openAfhalingen = deliveries.filter(d => d.status === 'geplaatst' && !d.toegewezenAanAfhaling && (d.afhaaldatum || d.datum) === perDriverDate)
+    .sort((a,b)=> sortKeyFor(a,'afhaaltijd') - sortKeyFor(b,'afhaaltijd'));
   if(openLeveringen.length === 0 && openAfhalingen.length === 0){
-    return `<div class="queue-note" style="text-align:left">✓ Alles is toegewezen.</div>`;
+    return `<div class="queue-note" style="text-align:left">✓ Niets onbeheerd op deze dag.</div>`;
   }
   let html = '';
   if(openLeveringen.length){
@@ -761,7 +770,6 @@ function renderUnassigned(){
   }
   return html;
 }
-let perDriverDate = todayISO();
 function renderPerDriver(){
   if(teamUsers.length === 0) return 'Nog geen teamleden.';
   return teamUsers.map(u=>{
@@ -789,6 +797,8 @@ function bindAssignmentOverviewEvents(){
     perDriverDateInput.addEventListener('change', (e)=>{
       perDriverDate = e.target.value || todayISO();
       document.getElementById('per-driver-list').innerHTML = renderPerDriver();
+      const unassignedEl = document.getElementById('unassigned-list');
+      if(unassignedEl) unassignedEl.innerHTML = renderUnassigned();
       bindAssignmentOverviewEvents();
     });
   }
