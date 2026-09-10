@@ -565,7 +565,7 @@ function emptyDelivery(){
     klant: '', telefoon: '', email: '', adres: '', postcode: '', ondergrond: '',
     datum: todayISO(), tijdslot: '',
     afhaaldatum: '', afhaaltijd: '',
-    artikelen: '', bedrag: '',
+    artikelen: '', bedrag: '', boekingsnummer: '',
     status: 'te-leveren',
     toegewezenAan: null, // { id, naam } chauffeur voor levering, of null = voor alle chauffeurs
     toegewezenAanAfhaling: null, // { id, naam } chauffeur voor afhaling, apart van levering
@@ -986,6 +986,7 @@ function renderNewForm(){
     <h3>Planning importeren</h3>
     <div style="font-size:12.5px;color:var(--text-dim);margin-bottom:10px;line-height:1.4">
       Upload een Excel-bestand (.xlsx) met de kolommen: Delivery Date, Drop Off, Collection Date, Collection, Customer Name, Mobile, Email, Delivery Address 1, Delivery Town, Delivery Postcode, Item, Balance, Surface.<br>
+      Heb je een boekingsnummer-kolom (bv. "Booking Number", "Boekingsnummer", "Reference")? Dan wordt een bestaande boeking automatisch bijgewerkt in plaats van dubbel aangemaakt bij een herimport.<br>
       Werk je in Numbers? Exporteer eerst via <b>Bestand → Exporteer naar → Excel</b>.
     </div>
     <input type="file" accept=".xlsx" id="import-file" style="display:none">
@@ -1043,7 +1044,9 @@ function bindNewFormEvents(){
           reader.readAsDataURL(file);
         });
         const r = await apiFetch('/api/import', { method:'POST', body: JSON.stringify({ fileBase64 }) });
-        let msg = r.imported + ' levering(en) geïmporteerd.';
+        let msg = r.imported + ' nieuwe levering(en) toegevoegd';
+        if(r.updated) msg += ', ' + r.updated + ' bestaande bijgewerkt (via boekingsnummer)';
+        msg += '.';
         if(r.skipped && r.skipped.length){
           msg += ' ' + r.skipped.length + ' rij(en) overgeslagen: ' + r.skipped.map(s=>'rij '+s.rij+' ('+s.reden+')').join(', ');
         }
@@ -1160,12 +1163,13 @@ function renderDetail(d){
     Start route in Waze
   </button>
 
-  ${(d.artikelen || d.bedrag || d.ondergrond) ? `<div class="section">
+  ${(d.artikelen || d.bedrag || d.ondergrond || d.boekingsnummer) ? `<div class="section">
     <h3>Artikelen &amp; details</h3>
     ${d.artikelen ? `<div class="field" style="margin-bottom:8px"><div style="font-size:14px">${escapeHtml(d.artikelen)}</div></div>` : ''}
     <div class="two-col" style="font-size:13px;color:var(--text-dim)">
       ${d.bedrag ? `<div>💶 Te ontvangen: <b style="color:var(--text)">€ ${escapeHtml(d.bedrag)}</b></div>` : ''}
       ${d.ondergrond ? `<div>🌱 Ondergrond: <b style="color:var(--text)">${escapeHtml(normalizeOndergrond(d.ondergrond))}</b></div>` : ''}
+      ${d.boekingsnummer ? `<div>🔖 Boekingsnr: <b style="color:var(--text)">${escapeHtml(d.boekingsnummer)}</b></div>` : ''}
     </div>
   </div>` : ''}
 
@@ -1655,6 +1659,7 @@ async function generateAndOfferPdf(d){
 
   heading('Klantgegevens');
   line('Dossiernummer', d.id);
+  if(d.boekingsnummer) line('Boekingsnummer', d.boekingsnummer);
   line('Klant', d.klant);
   line('Adres', d.adres);
   line('Telefoon', d.telefoon);
