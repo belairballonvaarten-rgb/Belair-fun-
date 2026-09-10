@@ -1284,7 +1284,7 @@ function renderDetail(d){
     <div class="adres">${escapeHtml(d.adres)}</div>
     <div class="meta">
       <span>📅 ${fmtDate(d.datum)} ${d.tijdslot ? '· ' + escapeHtml(d.tijdslot) : ''}</span>
-      ${d.telefoon ? `<span>📞 ${escapeHtml(d.telefoon)}</span>` : ''}
+      ${d.telefoon ? `<span>📞 <a href="tel:${escapeHtml(String(d.telefoon).replace(/[^\d+]/g,''))}" style="color:inherit;text-decoration:underline">${escapeHtml(d.telefoon)}</a></span>` : ''}
       ${d.email ? `<span>✉️ ${escapeHtml(d.email)}</span>` : ''}
     </div>
   </div>
@@ -1374,6 +1374,12 @@ function renderDetail(d){
     </div>
   </div>
 
+  <div class="section" id="fotos-section">
+    <h3>Foto's</h3>
+    <div class="photos-grid" id="photos-grid"><div class="add-photo" id="add-photo-btn">+</div></div>
+    <input type="file" accept="image/*" capture="environment" id="photo-input" style="display:none" multiple>
+  </div>
+
   <div class="section">
     <h3>Betaling</h3>
     <div class="pillgroup" id="betaling-pills">
@@ -1421,12 +1427,6 @@ function renderDetail(d){
     </div>
   </div>
   ` : ''}
-
-  <div class="section" id="fotos-section">
-    <h3>Foto's</h3>
-    <div class="photos-grid" id="photos-grid"><div class="add-photo" id="add-photo-btn">+</div></div>
-    <input type="file" accept="image/*" capture="environment" id="photo-input" style="display:none" multiple>
-  </div>
 
   <div class="stack">
     <button class="btn secondary" id="save-checklist">Gegevens opslaan</button>
