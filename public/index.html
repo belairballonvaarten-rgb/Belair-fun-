@@ -641,28 +641,40 @@ function render(){
   const logoutBtn = document.getElementById('logout-btn');
   if(logoutBtn) logoutBtn.addEventListener('click', ()=> doLogout());
 
-  if(view === 'list'){
-    sub.textContent = 'Planning';
-    main.innerHTML = renderList();
-    bindListEvents();
-  } else if(view === 'new'){
-    sub.textContent = 'Nieuwe levering';
-    main.innerHTML = renderNewForm();
-    bindNewFormEvents();
-  } else if(view === 'dossiers'){
-    sub.textContent = 'Overzicht';
-    main.innerHTML = renderDossiers();
-    bindDossierEvents();
-  } else if(view === 'team'){
-    sub.textContent = 'Team';
-    main.innerHTML = renderTeam();
-    bindTeamEvents();
-  } else if(view === 'detail'){
-    const d = getDelivery(currentId);
-    if(!d){ setView('list'); return; }
-    sub.textContent = d.klant || 'Levering';
-    main.innerHTML = renderDetail(d);
-    bindDetailEvents(d);
+  try{
+    if(view === 'list'){
+      sub.textContent = 'Planning';
+      main.innerHTML = renderList();
+      bindListEvents();
+    } else if(view === 'new'){
+      sub.textContent = 'Nieuwe levering';
+      main.innerHTML = renderNewForm();
+      bindNewFormEvents();
+    } else if(view === 'dossiers'){
+      sub.textContent = 'Overzicht';
+      main.innerHTML = renderDossiers();
+      bindDossierEvents();
+    } else if(view === 'team'){
+      sub.textContent = 'Team';
+      main.innerHTML = renderTeam();
+      Promise.resolve(bindTeamEvents()).catch(err=>{
+        console.error('Fout bij laden van Team-gegevens:', err);
+        showToast('Fout bij laden Team: ' + err.message);
+      });
+    } else if(view === 'detail'){
+      const d = getDelivery(currentId);
+      if(!d){ setView('list'); return; }
+      sub.textContent = d.klant || 'Levering';
+      main.innerHTML = renderDetail(d);
+      bindDetailEvents(d);
+    }
+  }catch(err){
+    console.error('Render-fout bij view "' + view + '":', err);
+    main.innerHTML = `<div class="section" style="border-color:var(--danger)">
+      <h3 style="color:var(--danger)">Er ging iets mis bij het tonen van dit scherm</h3>
+      <div style="font-size:13px;color:var(--text-dim);margin-bottom:10px">Maak hier een screenshot van en stuur die door:</div>
+      <div style="font-family:monospace;font-size:11.5px;white-space:pre-wrap;background:var(--panel-alt);padding:10px;border-radius:var(--radius);color:var(--danger)">${escapeHtml(view + ': ' + (err && err.stack ? err.stack : String(err)))}</div>
+    </div>`;
   }
 }
 
