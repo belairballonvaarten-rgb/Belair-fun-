@@ -70,6 +70,7 @@ function emptyDeliveryServer() {
     artikelen: '', bedrag: '',
     status: 'te-leveren',
     toegewezenAan: null,
+    toegewezenAanAfhaling: null,
     handmatigeVolgorde: null,
     plaatsing: {
       correctGeplaatst: false, bevestiging: '', valmatten: false, verlengkabel: false,
@@ -78,7 +79,8 @@ function emptyDeliveryServer() {
     betaling: { status: '', opmerking: '' },
     afhaling: {
       valmattenTerug: false, kabelsTerug: false, bevestigingTerug: false, natOfVuil: false, reinigingNodig: false,
-      opmerkingen: '', tijdstip: '', bevestigd: false, bevestigdOp: ''
+      opmerkingen: '', tijdstip: '', bevestigd: false, bevestigdOp: '',
+      verzetAangevraagd: false, verzetNaarDatum: '', verzetReden: ''
     }
   };
 }
