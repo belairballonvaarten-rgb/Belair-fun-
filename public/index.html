@@ -419,6 +419,21 @@ button{font-family:'Inter',sans-serif;}
   margin-bottom:14px;
   line-height:1.4;
 }
+
+/* Tablet en groter: gebruik meer van de beschikbare breedte */
+@media (min-width: 700px){
+  #app, .tabbar{ max-width:760px; }
+  main{ padding:22px 28px; }
+  .photos-grid{ grid-template-columns:repeat(4,1fr); }
+  #locations-map{ height:360px !important; }
+  .tabbar button{ font-size:16px; padding:14px 4px 12px; }
+  .card{ padding:16px 18px; }
+}
+@media (min-width: 1000px){
+  #app, .tabbar{ max-width:920px; }
+  .photos-grid{ grid-template-columns:repeat(6,1fr); }
+  #locations-map{ height:420px !important; }
+}
 </style>
 </head>
 <body>
