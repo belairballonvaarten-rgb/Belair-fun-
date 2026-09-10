@@ -1,0 +1,1487 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Belair-Fun — Leveringen</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+:root{
+  --bg:#1E2227;
+  --panel:#282D34;
+  --panel-alt:#313742;
+  --line:#3A4048;
+  --text:#F1EFE9;
+  --text-dim:#9BA2AC;
+  --accent:#E8631E;
+  --accent-dim:#B94F19;
+  --ok:#2F9E7A;
+  --warn:#D9A441;
+  --danger:#D2564F;
+  --radius:4px;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  background:var(--bg);
+  color:var(--text);
+  font-family:'Inter',sans-serif;
+  min-height:100vh;
+  -webkit-tap-highlight-color:transparent;
+}
+#app{
+  max-width:520px;
+  margin:0 auto;
+  min-height:100vh;
+  display:flex;
+  flex-direction:column;
+  padding-bottom:76px;
+  position:relative;
+}
+h1,h2,h3,.label-font{
+  font-family:'Barlow Condensed',sans-serif;
+  font-weight:600;
+  letter-spacing:0.2px;
+}
+/* Header */
+.topbar{
+  background:var(--panel);
+  border-bottom:2px solid var(--accent);
+  padding:16px 18px 14px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+}
+.topbar .brand{
+  font-family:'Barlow Condensed',sans-serif;
+  font-weight:700;
+  font-size:22px;
+  color:var(--text);
+  display:flex;
+  align-items:baseline;
+  gap:6px;
+}
+.topbar .brand .dot{color:var(--accent);}
+.topbar .sub{font-size:12px;color:var(--text-dim);margin-top:1px;}
+
+main{flex:1;padding:16px;}
+
+/* Bottom nav */
+.tabbar{
+  position:fixed;
+  bottom:0;left:0;right:0;
+  max-width:520px;
+  margin:0 auto;
+  background:var(--panel);
+  border-top:1px solid var(--line);
+  display:flex;
+  z-index:20;
+}
+.tabbar button{
+  flex:1;
+  background:none;
+  border:none;
+  color:var(--text-dim);
+  font-family:'Barlow Condensed',sans-serif;
+  font-size:15px;
+  font-weight:600;
+  padding:12px 4px 10px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:3px;
+  cursor:pointer;
+  border-top:2px solid transparent;
+}
+.tabbar button.active{color:var(--accent);border-top-color:var(--accent);}
+.tabbar svg{width:20px;height:20px;}
+
+/* Delivery list */
+.day-group{margin-bottom:22px;}
+.day-group h2{
+  font-size:16px;
+  color:var(--accent);
+  margin:0 0 8px 2px;
+  text-transform:uppercase;
+  font-size:13px;
+  letter-spacing:0.6px;
+}
+.card{
+  background:var(--panel);
+  border-left:3px solid var(--line);
+  border-radius:0 var(--radius) var(--radius) 0;
+  padding:12px 14px;
+  margin-bottom:10px;
+  cursor:pointer;
+}
+.card.status-te-leveren{border-left-color:var(--accent);}
+.card.status-geplaatst{border-left-color:var(--warn);}
+.card.status-afgerond{border-left-color:var(--ok);}
+.card .row1{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;}
+.card .klant{font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:18px;}
+.card .tijd{font-size:13px;color:var(--text-dim);white-space:nowrap;}
+.card .adres{font-size:13px;color:var(--text-dim);margin-top:2px;}
+.badge{
+  display:inline-block;
+  font-size:11px;
+  font-family:'Barlow Condensed',sans-serif;
+  font-weight:600;
+  padding:2px 8px;
+  border-radius:10px;
+  margin-top:6px;
+  letter-spacing:0.3px;
+}
+.badge.te-leveren{background:rgba(232,99,30,0.18);color:var(--accent);}
+.badge.geplaatst{background:rgba(217,164,65,0.18);color:var(--warn);}
+.badge.afgerond{background:rgba(47,158,122,0.18);color:var(--ok);}
+
+.card.card-mine{border-left-color:var(--accent);background:linear-gradient(90deg, rgba(232,99,30,0.08), var(--panel) 40%);}
+.assign-badge{
+  font-size:11px;font-family:'Barlow Condensed',sans-serif;font-weight:600;
+  padding:2px 8px;border-radius:10px;letter-spacing:0.3px;
+}
+.assign-badge.mine{background:var(--accent);color:#fff;}
+.assign-badge.other{background:var(--panel-alt);color:var(--text-dim);}
+.assign-badge.open{background:var(--panel-alt);color:var(--text-dim);}
+.empty{
+  text-align:center;
+  color:var(--text-dim);
+  padding:60px 20px;
+  font-size:14px;
+}
+.empty .big{font-family:'Barlow Condensed',sans-serif;font-size:20px;color:var(--text);margin-bottom:6px;}
+
+/* Buttons */
+button{font-family:'Inter',sans-serif;}
+.btn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  background:var(--accent);
+  color:#fff;
+  border:none;
+  border-radius:var(--radius);
+  padding:13px 16px;
+  font-size:15px;
+  font-weight:600;
+  cursor:pointer;
+  width:100%;
+}
+.btn:active{background:var(--accent-dim);}
+.btn.secondary{background:var(--panel-alt);color:var(--text);border:1px solid var(--line);}
+.btn.ok{background:var(--ok);}
+.btn.ghost{background:none;color:var(--accent);padding:10px 4px;width:auto;}
+.btn.small{padding:9px 12px;font-size:13px;width:auto;}
+.btn:disabled{opacity:0.45;cursor:default;}
+
+/* Detail view */
+.back{
+  display:flex;align-items:center;gap:6px;
+  color:var(--text-dim);
+  font-size:14px;
+  cursor:pointer;
+  margin-bottom:12px;
+}
+.detail-head{margin-bottom:14px;}
+.detail-head .klant{font-family:'Barlow Condensed',sans-serif;font-size:26px;font-weight:700;}
+.detail-head .adres{color:var(--text-dim);font-size:14px;margin-top:2px;}
+.detail-head .meta{display:flex;gap:14px;margin-top:8px;font-size:13px;color:var(--text-dim);}
+
+.section{
+  background:var(--panel);
+  border-radius:var(--radius);
+  border:1px solid var(--line);
+  padding:14px 16px;
+  margin-bottom:14px;
+}
+.section h3{
+  font-size:14px;
+  text-transform:uppercase;
+  letter-spacing:0.5px;
+  color:var(--text-dim);
+  margin:0 0 12px 0;
+}
+.field{margin-bottom:12px;}
+.field:last-child{margin-bottom:0;}
+.field label{display:block;font-size:13px;color:var(--text-dim);margin-bottom:5px;}
+.field input[type=text],.field input[type=tel],.field input[type=date],.field input[type=time],.field input[type=number],.field select,.field textarea{
+  width:100%;
+  background:var(--panel-alt);
+  border:1px solid var(--line);
+  color:var(--text);
+  border-radius:var(--radius);
+  padding:10px 11px;
+  font-size:14px;
+  font-family:'Inter',sans-serif;
+}
+.field textarea{resize:vertical;min-height:64px;}
+
+.check-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:11px 0;
+  border-bottom:1px solid var(--line);
+  gap:12px;
+}
+.check-row:last-child{border-bottom:none;}
+.check-row .txt{font-size:14px;}
+.check-row .sub{font-size:12px;color:var(--text-dim);margin-top:2px;}
+.toggle{
+  width:46px;height:27px;
+  background:var(--panel-alt);
+  border:1px solid var(--line);
+  border-radius:14px;
+  position:relative;
+  cursor:pointer;
+  flex-shrink:0;
+}
+.toggle .knob{
+  position:absolute;top:2px;left:2px;
+  width:21px;height:21px;
+  border-radius:50%;
+  background:var(--text-dim);
+  transition:left .15s, background .15s;
+}
+.toggle.on{background:rgba(47,158,122,0.25);border-color:var(--ok);}
+.toggle.on .knob{left:21px;background:var(--ok);}
+
+.pillgroup{display:flex;gap:8px;flex-wrap:wrap;}
+.pill{
+  padding:8px 13px;
+  border-radius:16px;
+  border:1px solid var(--line);
+  background:var(--panel-alt);
+  color:var(--text-dim);
+  font-size:13px;
+  cursor:pointer;
+}
+.pill.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+
+.waze-btn{
+  display:flex;align-items:center;justify-content:center;gap:9px;
+  background:#33ccff;
+  color:#0a2733;
+  font-weight:700;
+  border-radius:var(--radius);
+  padding:14px;
+  font-family:'Barlow Condensed',sans-serif;
+  font-size:17px;
+  cursor:pointer;
+  border:none;
+  width:100%;
+}
+
+.photos-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px;}
+.photo-thumb{position:relative;aspect-ratio:1;border-radius:var(--radius);overflow:hidden;background:var(--panel-alt);}
+.photo-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
+.photo-thumb .rm{
+  position:absolute;top:3px;right:3px;
+  background:rgba(0,0,0,0.6);color:#fff;
+  border-radius:50%;width:20px;height:20px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:12px;cursor:pointer;
+}
+.add-photo{
+  aspect-ratio:1;border-radius:var(--radius);
+  border:1.5px dashed var(--line);
+  display:flex;align-items:center;justify-content:center;
+  color:var(--text-dim);font-size:26px;cursor:pointer;
+}
+
+.statusbar-select{margin-bottom:14px;}
+.statusbar-select select{
+  width:100%;background:var(--panel-alt);border:1px solid var(--line);color:var(--text);
+  padding:10px;border-radius:var(--radius);font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:15px;
+}
+
+.toast{
+  position:fixed;bottom:90px;left:50%;transform:translateX(-50%);
+  background:var(--ok);color:#fff;padding:10px 18px;border-radius:20px;
+  font-size:13px;font-weight:600;z-index:50;
+  opacity:0;pointer-events:none;transition:opacity .2s, bottom .2s;
+}
+.toast.show{opacity:1;bottom:100px;}
+
+.stack{display:flex;flex-direction:column;gap:10px;}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+
+.locked-block{opacity:0.5;pointer-events:none;user-select:none;}
+.locked-banner{
+  display:flex;align-items:center;gap:6px;
+  background:rgba(47,158,122,0.12);
+  border:1px solid rgba(47,158,122,0.4);
+  color:var(--ok);
+  font-size:12.5px;font-weight:600;
+  padding:8px 11px;border-radius:var(--radius);
+  margin-bottom:12px;
+}
+.queue-note{
+  background:var(--panel-alt);
+  border:1px dashed var(--line);
+  color:var(--text-dim);
+  font-size:12.5px;
+  padding:10px 12px;
+  border-radius:var(--radius);
+  text-align:center;
+}
+.auth-wrap{
+  max-width:360px;margin:0 auto;
+  min-height:100vh;
+  display:flex;flex-direction:column;justify-content:center;
+  padding:24px;
+}
+.auth-wrap .field{margin-bottom:12px;}
+.auth-wrap .error{
+  color:var(--danger);font-size:13px;margin:-4px 0 12px;min-height:16px;
+}
+.auth-wrap .switch-link{
+  text-align:center;color:var(--text-dim);font-size:13px;margin-top:14px;cursor:pointer;
+}
+.auth-wrap .switch-link b{color:var(--accent);font-weight:600;}
+.user-chip{
+  display:flex;align-items:center;gap:8px;
+  font-size:12.5px;color:var(--text-dim);
+}
+.user-chip .logout{color:var(--accent);cursor:pointer;font-weight:600;}
+.team-row{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:11px 0;border-bottom:1px solid var(--line);
+}
+.team-row:last-child{border-bottom:none;}
+.team-row .naam{font-size:14px;}
+.team-row .rolbadge{font-size:11px;color:var(--text-dim);margin-top:2px;}
+.team-row .rm{color:var(--danger);font-size:12px;cursor:pointer;}
+.note-banner{
+  background:rgba(217,164,65,0.12);
+  border:1px solid rgba(217,164,65,0.4);
+  border-radius:var(--radius);
+  padding:10px 12px;
+  font-size:12.5px;
+  color:var(--warn);
+  margin-bottom:14px;
+  line-height:1.4;
+}
+</style>
+</head>
+<body>
+<div id="authScreen" style="display:none">
+  <div class="auth-wrap">
+    <div class="brand" style="font-size:28px;margin-bottom:4px">Belair<span class="dot">·</span>Fun</div>
+    <div id="authSub" class="sub" style="margin-bottom:22px">Leveringen &amp; planning</div>
+    <div id="authForm"></div>
+  </div>
+</div>
+
+<div id="app" style="display:none">
+  <div class="topbar">
+    <div>
+      <div class="brand">Belair<span class="dot">·</span>Fun</div>
+      <div class="sub" id="topbarSub">Leveringen</div>
+    </div>
+    <div id="topbarAction"></div>
+  </div>
+  <main id="main"></main>
+  <div class="tabbar">
+    <button data-tab="list" class="tab-btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+      Leveringen
+    </button>
+    <button data-tab="new" class="tab-btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+      Nieuw
+    </button>
+    <button data-tab="dossiers" class="tab-btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4zM4 9h16"/></svg>
+      Dossiers
+    </button>
+    <button data-tab="team" class="tab-btn" id="teamTabBtn" style="display:none">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      Team
+    </button>
+  </div>
+  <div class="toast" id="toast"></div>
+</div>
+<script>
+// ---------- State ----------
+let deliveries = [];
+let view = 'list';
+let currentId = null;
+let checklistMode = 'plaatsing'; // 'plaatsing' | 'afhaling'
+let busy = false;
+
+const STATUS_LABEL = {
+  'te-leveren': 'Te leveren',
+  'geplaatst': 'Geplaatst — wacht op afhaling',
+  'afgerond': 'Afgerond'
+};
+
+// ---------- Auth state ----------
+let authToken = localStorage.getItem('bf-token') || null;
+let currentUser = null;
+let authMode = 'login'; // 'login' | 'setup'
+const persistedIds = new Set();
+
+async function apiFetch(path, opts){
+  opts = opts || {};
+  const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
+  if(authToken) headers['Authorization'] = 'Bearer ' + authToken;
+  const res = await fetch(path, Object.assign({}, opts, { headers }));
+  if(res.status === 401 && path !== '/api/login' && path !== '/api/setup'){
+    doLogout();
+    throw new Error('Sessie verlopen, log opnieuw in');
+  }
+  let body = null;
+  try{ body = await res.json(); }catch(e){}
+  if(!res.ok) throw new Error((body && body.error) || 'Er ging iets mis');
+  return body;
+}
+
+function doLogout(reload){
+  authToken = null; currentUser = null;
+  localStorage.removeItem('bf-token');
+  if(reload !== false) showAuthScreen();
+}
+
+// ---------- Data helpers (via API) ----------
+async function loadDeliveries(){
+  deliveries = await apiFetch('/api/deliveries');
+  persistedIds.clear();
+  deliveries.forEach(d => persistedIds.add(d.id));
+}
+async function saveDeliveries(d){
+  if(!d) return;
+  if(persistedIds.has(d.id)){
+    await apiFetch('/api/deliveries/' + d.id, { method:'PUT', body: JSON.stringify(d) });
+  }else{
+    await apiFetch('/api/deliveries', { method:'POST', body: JSON.stringify(d) });
+    persistedIds.add(d.id);
+  }
+}
+function getDelivery(id){ return deliveries.find(d => d.id === id); }
+
+async function loadPhotos(id){
+  try{ return await apiFetch('/api/deliveries/' + id + '/photos'); }
+  catch(e){ return []; }
+}
+async function addPhotoRemote(id, naam, dataUrl){
+  return apiFetch('/api/deliveries/' + id + '/photos', { method:'POST', body: JSON.stringify({ naam, dataUrl }) });
+}
+async function removePhotoRemote(deliveryId, photoId){
+  await apiFetch('/api/deliveries/' + deliveryId + '/photos/' + photoId, { method:'DELETE' });
+}
+
+// ---------- Utilities ----------
+function uid(){ return 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+function fmtDate(iso){
+  if(!iso) return '—';
+  const d = new Date(iso + 'T00:00:00');
+  return d.toLocaleDateString('nl-BE', { weekday:'short', day:'numeric', month:'short' });
+}
+function todayISO(){
+  const d = new Date();
+  return d.toISOString().slice(0,10);
+}
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(()=> t.classList.remove('show'), 2200);
+}
+function escapeHtml(s){
+  return (s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function emptyDelivery(){
+  return {
+    id: uid(),
+    klant: '', telefoon: '', email: '', adres: '', postcode: '', ondergrond: '',
+    datum: todayISO(), tijdslot: '',
+    afhaaldatum: '', afhaaltijd: '',
+    artikelen: '', bedrag: '',
+    status: 'te-leveren',
+    toegewezenAan: null, // { id, naam } of null = voor alle chauffeurs
+    plaatsing: {
+      correctGeplaatst: false,
+      bevestiging: '', // pinnen | zandzakken | geen
+      valmatten: false,
+      verlengkabel: false,
+      aantalKabels: '',
+      netjes: false,
+      opmerkingen: '',
+      tijdstip: '',
+      bevestigd: false,
+      bevestigdOp: ''
+    },
+    betaling: { status: '', opmerking: '' }, // voldaan-cash | voldaan-overschrijving | factuur
+    afhaling: {
+      valmattenTerug: false,
+      kabelsTerug: false,
+      natOfVuil: false,
+      reinigingNodig: false,
+      opmerkingen: '',
+      tijdstip: '',
+      bevestigd: false,
+      bevestigdOp: ''
+    }
+  };
+}
+function fmtDateTime(iso){
+  if(!iso) return '';
+  const d = new Date(iso);
+  return d.toLocaleDateString('nl-BE', { day:'numeric', month:'short' }) + ' om ' + d.toLocaleTimeString('nl-BE', { hour:'2-digit', minute:'2-digit' });
+}
+
+// ---------- Routing / render ----------
+function setView(v, id){
+  view = v;
+  currentId = id || null;
+  document.querySelectorAll('.tab-btn').forEach(b=>{
+    b.classList.toggle('active', b.dataset.tab === v || (v==='detail' && b.dataset.tab==='list'));
+  });
+  render();
+}
+
+function render(){
+  const main = document.getElementById('main');
+  const sub = document.getElementById('topbarSub');
+  const action = document.getElementById('topbarAction');
+  action.innerHTML = `<div class="user-chip">${escapeHtml(currentUser ? currentUser.naam : '')}<span class="logout" id="logout-btn">Uitloggen</span></div>`;
+  const logoutBtn = document.getElementById('logout-btn');
+  if(logoutBtn) logoutBtn.addEventListener('click', ()=> doLogout());
+
+  if(view === 'list'){
+    sub.textContent = 'Leveringen';
+    main.innerHTML = renderList();
+    bindListEvents();
+  } else if(view === 'new'){
+    sub.textContent = 'Nieuwe levering';
+    main.innerHTML = renderNewForm();
+    bindNewFormEvents();
+  } else if(view === 'dossiers'){
+    sub.textContent = 'Dossiers';
+    main.innerHTML = renderDossiers();
+    bindDossierEvents();
+  } else if(view === 'team'){
+    sub.textContent = 'Team';
+    main.innerHTML = renderTeam();
+    bindTeamEvents();
+  } else if(view === 'detail'){
+    const d = getDelivery(currentId);
+    if(!d){ setView('list'); return; }
+    sub.textContent = d.klant || 'Levering';
+    main.innerHTML = renderDetail(d);
+    bindDetailEvents(d);
+  }
+}
+
+// ---------- TEAM (enkel admin) ----------
+let teamUsers = [];
+function renderTeam(){
+  return `
+  <div class="section">
+    <h3>Nieuw teamlid</h3>
+    <div class="field"><label>Naam</label><input type="text" id="t-naam" placeholder="Bv. Kevin"></div>
+    <div class="field"><label>Gebruikersnaam (voor inloggen)</label><input type="text" id="t-username" placeholder="Bv. kevin"></div>
+    <div class="field"><label>Wachtwoord</label><input type="text" id="t-password" placeholder="Kies een wachtwoord"></div>
+    <div class="field">
+      <label>Rol</label>
+      <select id="t-rol">
+        <option value="plaatser">Plaatser</option>
+        <option value="admin">Administrator</option>
+      </select>
+    </div>
+    <button class="btn" id="add-user-btn">Teamlid toevoegen</button>
+  </div>
+  <div class="section">
+    <h3>Team</h3>
+    <div id="team-list">Laden...</div>
+  </div>
+  `;
+}
+async function bindTeamEvents(){
+  document.getElementById('add-user-btn').addEventListener('click', async ()=>{
+    const naam = document.getElementById('t-naam').value.trim();
+    const username = document.getElementById('t-username').value.trim();
+    const password = document.getElementById('t-password').value;
+    const rol = document.getElementById('t-rol').value;
+    if(!naam || !username || !password){ showToast('Vul alle velden in'); return; }
+    try{
+      await apiFetch('/api/users', { method:'POST', body: JSON.stringify({ naam, username, password, rol }) });
+      showToast('Teamlid toegevoegd');
+      setView('team');
+    }catch(err){ showToast(err.message); }
+  });
+  await refreshTeamList();
+}
+async function refreshTeamList(){
+  const el = document.getElementById('team-list');
+  try{
+    teamUsers = await apiFetch('/api/users');
+    assignableUsers = teamUsers;
+  }catch(err){ el.textContent = err.message; return; }
+  if(teamUsers.length === 0){ el.textContent = 'Nog geen teamleden.'; return; }
+  el.innerHTML = teamUsers.map(u => `
+    <div class="team-row">
+      <div>
+        <div class="naam">${escapeHtml(u.naam)} <span style="color:var(--text-dim)">(${escapeHtml(u.username)})</span></div>
+        <div class="rolbadge">${u.rol === 'admin' ? 'Administrator' : 'Plaatser'}</div>
+      </div>
+      ${u.id !== currentUser.id ? `<span class="rm" data-id="${u.id}">Verwijderen</span>` : ''}
+    </div>
+  `).join('');
+  el.querySelectorAll('.rm').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(!confirm('Dit teamlid verwijderen?')) return;
+      try{
+        await apiFetch('/api/users/' + btn.dataset.id, { method:'DELETE' });
+        showToast('Teamlid verwijderd');
+        refreshTeamList();
+      }catch(err){ showToast(err.message); }
+    });
+  });
+}
+
+// ---------- LIST VIEW ----------
+let listFilter = 'alle'; // 'alle' | 'mij'
+function renderList(){
+  const filterBar = `
+    <div class="pillgroup" id="list-filter-pills" style="margin-bottom:16px">
+      <span class="pill ${listFilter==='alle'?'active':''}" data-val="alle">Alles</span>
+      <span class="pill ${listFilter==='mij'?'active':''}" data-val="mij">Voor mij</span>
+    </div>
+  `;
+  const visible = listFilter === 'mij'
+    ? deliveries.filter(d => d.toegewezenAan && d.toegewezenAan.id === currentUser.id)
+    : deliveries;
+
+  if(deliveries.length === 0){
+    return `<div class="empty">
+      <div class="big">Nog geen leveringen</div>
+      Voeg een levering toe via "Nieuw" onderaan.
+    </div>`;
+  }
+  if(visible.length === 0){
+    return filterBar + `<div class="empty"><div class="big">Niets voor jou toegewezen</div>Bekijk "Alles" om de volledige planning te zien.</div>`;
+  }
+  const groups = {};
+  const sorted = [...visible].sort((a,b)=> (a.datum||'').localeCompare(b.datum||''));
+  sorted.forEach(d=>{
+    const key = d.status === 'afgerond' ? (d.afhaaldatum || d.datum || 'Onbekend') : (d.datum || 'Onbekend');
+    if(!groups[key]) groups[key] = [];
+    groups[key].push(d);
+  });
+  let html = filterBar;
+  Object.keys(groups).sort().forEach(dateKey=>{
+    html += `<div class="day-group"><h2>${dateKey===todayISO() ? 'Vandaag — ' : ''}${fmtDate(dateKey)}</h2>`;
+    groups[dateKey].forEach(d=>{
+      const forMe = d.toegewezenAan && d.toegewezenAan.id === currentUser.id;
+      const assignLabel = forMe
+        ? `<span class="assign-badge mine">Voor jou</span>`
+        : d.toegewezenAan
+          ? `<span class="assign-badge other">→ ${escapeHtml(d.toegewezenAan.naam)}</span>`
+          : `<span class="assign-badge open">Alle chauffeurs</span>`;
+      html += `<div class="card status-${d.status} ${forMe?'card-mine':''}" data-id="${d.id}">
+        <div class="row1">
+          <div>
+            <div class="klant">${escapeHtml(d.klant || 'Naamloos')}</div>
+            <div class="adres">${escapeHtml(d.adres || 'Geen adres')}</div>
+          </div>
+          <div class="tijd">${escapeHtml(d.tijdslot || '')}</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px">
+          <span class="badge ${d.status}" style="margin-top:0">${STATUS_LABEL[d.status]}</span>
+          ${assignLabel}
+        </div>
+      </div>`;
+    });
+    html += `</div>`;
+  });
+  return html;
+}
+function bindListEvents(){
+  document.querySelectorAll('.card').forEach(c=>{
+    c.addEventListener('click', ()=> setView('detail', c.dataset.id));
+  });
+  const filterPills = document.getElementById('list-filter-pills');
+  if(filterPills){
+    filterPills.querySelectorAll('.pill').forEach(p=>{
+      p.addEventListener('click', ()=>{
+        listFilter = p.dataset.val;
+        render();
+      });
+    });
+  }
+}
+
+// ---------- NEW DELIVERY FORM ----------
+function renderNewForm(){
+  return `
+  ${currentUser && currentUser.rol === 'admin' ? `
+  <div class="section">
+    <h3>Planning importeren</h3>
+    <div style="font-size:12.5px;color:var(--text-dim);margin-bottom:10px;line-height:1.4">
+      Upload een Excel-bestand (.xlsx) met de kolommen: Delivery Date, Drop Off, Collection Date, Collection, Customer Name, Mobile, Email, Delivery Address 1, Delivery Town, Delivery Postcode, Item, Balance, Surface.<br>
+      Werk je in Numbers? Exporteer eerst via <b>Bestand → Exporteer naar → Excel</b>.
+    </div>
+    <input type="file" accept=".xlsx" id="import-file" style="display:none">
+    <button class="btn secondary" id="import-btn">Excel-bestand kiezen</button>
+    <div id="import-result" style="margin-top:10px;font-size:13px"></div>
+  </div>
+  ` : ''}
+  <div class="section">
+    <h3>Klant &amp; adres</h3>
+    <div class="field"><label>Naam klant</label><input type="text" id="f-klant" placeholder="Bv. Familie Peeters"></div>
+    <div class="field"><label>Telefoon</label><input type="tel" id="f-telefoon" placeholder="04xx xx xx xx"></div>
+    <div class="field"><label>E-mail</label><input type="text" id="f-email" placeholder="optioneel"></div>
+    <div class="field"><label>Adres (voor Waze)</label><input type="text" id="f-adres" placeholder="Straat, nr, gemeente"></div>
+  </div>
+  <div class="section">
+    <h3>Levering</h3>
+    <div class="two-col">
+      <div class="field"><label>Leverdatum</label><input type="date" id="f-datum" value="${todayISO()}"></div>
+      <div class="field"><label>Tijdslot</label><input type="text" id="f-tijdslot" placeholder="Bv. 09:00 - 10:00"></div>
+    </div>
+    <div class="field"><label>Artikelen</label><textarea id="f-artikelen" placeholder="Bv. Springkasteel Draak XL + suikerspinmachine"></textarea></div>
+  </div>
+  <div class="section">
+    <h3>Afhaling</h3>
+    <div class="two-col">
+      <div class="field"><label>Afhaaldatum</label><input type="date" id="f-afhaaldatum"></div>
+      <div class="field"><label>Voorziene afhaaltijd</label><input type="time" id="f-afhaaltijd"></div>
+    </div>
+  </div>
+  <button class="btn" id="save-new">Levering toevoegen</button>
+  `;
+}
+function bindNewFormEvents(){
+  const importBtn = document.getElementById('import-btn');
+  if(importBtn){
+    importBtn.addEventListener('click', ()=> document.getElementById('import-file').click());
+    document.getElementById('import-file').addEventListener('change', async (e)=>{
+      const file = e.target.files[0];
+      if(!file) return;
+      const resultEl = document.getElementById('import-result');
+      resultEl.textContent = 'Bezig met importeren...';
+      try{
+        const fileBase64 = await new Promise((resolve, reject)=>{
+          const reader = new FileReader();
+          reader.onload = ()=> resolve(reader.result.split(',')[1]);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        const r = await apiFetch('/api/import', { method:'POST', body: JSON.stringify({ fileBase64 }) });
+        let msg = r.imported + ' levering(en) geïmporteerd.';
+        if(r.skipped && r.skipped.length){
+          msg += ' ' + r.skipped.length + ' rij(en) overgeslagen: ' + r.skipped.map(s=>'rij '+s.rij+' ('+s.reden+')').join(', ');
+        }
+        resultEl.textContent = msg;
+        showToast('Import voltooid');
+        await loadDeliveries();
+      }catch(err){
+        resultEl.textContent = 'Import mislukt: ' + err.message;
+      }
+      e.target.value = '';
+    });
+  }
+
+  document.getElementById('save-new').addEventListener('click', async ()=>{
+    const klant = document.getElementById('f-klant').value.trim();
+    const adres = document.getElementById('f-adres').value.trim();
+    if(!klant || !adres){ showToast('Naam en adres zijn verplicht'); return; }
+    const d = emptyDelivery();
+    d.klant = klant;
+    d.telefoon = document.getElementById('f-telefoon').value.trim();
+    d.email = document.getElementById('f-email').value.trim();
+    d.adres = adres;
+    d.datum = document.getElementById('f-datum').value || todayISO();
+    d.tijdslot = document.getElementById('f-tijdslot').value.trim();
+    d.artikelen = document.getElementById('f-artikelen').value.trim();
+    d.afhaaldatum = document.getElementById('f-afhaaldatum').value;
+    d.afhaaltijd = document.getElementById('f-afhaaltijd').value;
+    d.plaatsing.tijdstip = d.afhaaltijd;
+    deliveries.push(d);
+    try{
+      await saveDeliveries(d);
+      showToast('Levering toegevoegd');
+      setView('detail', d.id);
+    }catch(err){
+      deliveries.pop();
+      showToast(err.message);
+    }
+  });
+}
+
+// ---------- DETAIL VIEW ----------
+function wazeUrl(adres){
+  return 'https://waze.com/ul?q=' + encodeURIComponent(adres) + '&navigate=yes';
+}
+
+function renderDetail(d){
+  const mode = d.status === 'afgerond' ? 'afhaling' : (d.status === 'geplaatst' ? 'afhaling' : 'plaatsing');
+  checklistMode = mode;
+  return `
+  <div class="back" id="back-btn">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg>
+    Terug naar leveringen
+  </div>
+
+  <div class="detail-head">
+    <div class="klant">${escapeHtml(d.klant)}</div>
+    <div class="adres">${escapeHtml(d.adres)}</div>
+    <div class="meta">
+      <span>📅 ${fmtDate(d.datum)} ${d.tijdslot ? '· ' + escapeHtml(d.tijdslot) : ''}</span>
+      ${d.telefoon ? `<span>📞 ${escapeHtml(d.telefoon)}</span>` : ''}
+      ${d.email ? `<span>✉️ ${escapeHtml(d.email)}</span>` : ''}
+    </div>
+  </div>
+
+  <div class="statusbar-select">
+    <select id="status-select">
+      <option value="te-leveren" ${d.status==='te-leveren'?'selected':''}>Te leveren</option>
+      <option value="geplaatst" ${d.status==='geplaatst'?'selected':''}>Geplaatst — wacht op afhaling</option>
+      <option value="afgerond" ${d.status==='afgerond'?'selected':''}>Afgerond</option>
+    </select>
+  </div>
+
+  ${currentUser.rol === 'admin' ? `
+  <div class="statusbar-select">
+    <select id="assign-select">
+      <option value="">Niet toegewezen — alle chauffeurs</option>
+      ${assignableUsers.map(u=>`<option value="${u.id}" ${d.toegewezenAan && d.toegewezenAan.id===u.id ? 'selected':''}>${escapeHtml(u.naam)}</option>`).join('')}
+    </select>
+  </div>
+  ` : `
+  <div class="queue-note" style="margin-bottom:14px;text-align:left">
+    ${d.toegewezenAan ? (d.toegewezenAan.id===currentUser.id ? '✓ Deze levering is aan jou toegewezen.' : 'Toegewezen aan ' + escapeHtml(d.toegewezenAan.naam) + '.') : 'Niet toegewezen — open voor alle chauffeurs.'}
+  </div>
+  `}
+
+  <button class="waze-btn" id="waze-btn">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C7 2 3 6 3 11c0 5.2 7.4 10.4 8.4 11a1 1 0 0 0 1.2 0C13.6 21.4 21 16.2 21 11c0-5-4-9-9-9zm0 12a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"/></svg>
+    Start route in Waze
+  </button>
+
+  ${(d.artikelen || d.bedrag || d.ondergrond) ? `<div class="section">
+    <h3>Artikelen &amp; details</h3>
+    ${d.artikelen ? `<div class="field" style="margin-bottom:8px"><div style="font-size:14px">${escapeHtml(d.artikelen)}</div></div>` : ''}
+    <div class="two-col" style="font-size:13px;color:var(--text-dim)">
+      ${d.bedrag ? `<div>💶 Te ontvangen: <b style="color:var(--text)">€ ${escapeHtml(d.bedrag)}</b></div>` : ''}
+      ${d.ondergrond ? `<div>🌱 Ondergrond: <b style="color:var(--text)">${escapeHtml(d.ondergrond)}</b></div>` : ''}
+    </div>
+  </div>` : ''}
+
+  <div class="section">
+    <h3>Afhaaltijd bevestigen</h3>
+    <div class="two-col">
+      <div class="field"><label>Afhaaldatum</label><input type="date" id="afhaaldatum" value="${d.afhaaldatum||''}" ${d.plaatsing.bevestigd?'disabled':''}></div>
+      <div class="field"><label>Afhaaltijd</label><input type="time" id="afhaaltijd" value="${d.afhaaltijd||''}" ${d.plaatsing.bevestigd?'disabled':''}></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h3>Checklist bij plaatsing</h3>
+    ${d.ondergrond ? `<div class="queue-note" style="margin-bottom:12px;text-align:left">Ondergrond volgens planning: <b>${escapeHtml(d.ondergrond)}</b>${/hard/i.test(d.ondergrond) ? ' — gebruik zandzakken, geen pinnen.' : ''}</div>` : ''}
+    ${d.plaatsing.bevestigd ? `<div class="locked-banner">✓ Levering bevestigd — ${fmtDateTime(d.plaatsing.bevestigdOp)}</div>` : ''}
+    <div class="${d.plaatsing.bevestigd ? 'locked-block' : ''}">
+      ${renderPlaatsingChecklist(d)}
+    </div>
+  </div>
+
+  <div class="section">
+    <h3>Betaling</h3>
+    <div class="pillgroup" id="betaling-pills">
+      ${pill('voldaan-cash','Voldaan (cash)', d.betaling.status)}
+      ${pill('voldaan-overschrijving','Voldaan (overschrijving)', d.betaling.status)}
+      ${pill('factuur','Factuur opmaken', d.betaling.status)}
+    </div>
+    <div class="field" style="margin-top:10px"><label>Opmerking betaling</label><input type="text" id="betaling-opmerking" value="${escapeHtml(d.betaling.opmerking||'')}" placeholder="optioneel"></div>
+  </div>
+
+  <div class="stack" style="margin-bottom:14px">
+    ${!d.plaatsing.bevestigd
+      ? `<button class="btn ok" id="confirm-plaatsing">Levering bevestigen</button>`
+      : `<button class="btn secondary" id="edit-plaatsing">Levering bewerken</button>`}
+  </div>
+
+  <div class="section">
+    <h3>Checklist bij afhaling</h3>
+    ${!d.plaatsing.bevestigd
+      ? `<div class="queue-note">Wordt actief zodra de levering is bevestigd.</div>`
+      : d.afhaling.bevestigd
+        ? `<div class="locked-banner">✓ Afhaling bevestigd — ${fmtDateTime(d.afhaling.bevestigdOp)}</div>`
+        : ''
+    }
+    <div class="${(!d.plaatsing.bevestigd || d.afhaling.bevestigd) ? 'locked-block' : ''}">
+      ${renderAfhalingChecklist(d)}
+    </div>
+  </div>
+
+  ${d.plaatsing.bevestigd ? `
+  <div class="stack" style="margin-bottom:14px">
+    ${!d.afhaling.bevestigd
+      ? `<button class="btn ok" id="confirm-afhaling">Afhaling bevestigen</button>`
+      : `<button class="btn secondary" id="edit-afhaling">Afhaling bewerken</button>`}
+  </div>` : ''}
+
+  <div class="section" id="fotos-section">
+    <h3>Foto's</h3>
+    <div class="photos-grid" id="photos-grid"><div class="add-photo" id="add-photo-btn">+</div></div>
+    <input type="file" accept="image/*" capture="environment" id="photo-input" style="display:none" multiple>
+  </div>
+
+  <div class="stack">
+    <button class="btn secondary" id="save-checklist">Gegevens opslaan</button>
+    <button class="btn secondary" id="make-pdf">Plaatsingsverslag maken (PDF)</button>
+  </div>
+  `;
+}
+
+function pill(value, label, current){
+  return `<span class="pill ${current===value?'active':''}" data-val="${value}">${label}</span>`;
+}
+
+function checkRow(id, label, sub, checked){
+  return `<div class="check-row">
+    <div><div class="txt">${label}</div>${sub?`<div class="sub">${sub}</div>`:''}</div>
+    <div class="toggle ${checked?'on':''}" id="${id}" data-checked="${checked?1:0}"><div class="knob"></div></div>
+  </div>`;
+}
+
+function renderPlaatsingChecklist(d){
+  const p = d.plaatsing;
+  return `
+    ${checkRow('chk-correct','Springkasteel correct geplaatst','', p.correctGeplaatst)}
+    <div class="check-row" style="border-bottom:none;flex-direction:column;align-items:flex-start;gap:8px;">
+      <div class="txt">Bevestiging</div>
+      <div class="pillgroup" id="bevestiging-pills">
+        ${pill('pinnen','Pinnen', p.bevestiging)}
+        ${pill('zandzakken','Zandzakken', p.bevestiging)}
+        ${pill('geen','Geen', p.bevestiging)}
+      </div>
+    </div>
+    ${checkRow('chk-valmatten','Valmatten gebruikt','', p.valmatten)}
+    ${checkRow('chk-kabel','Verlengkabel gebruikt','', p.verlengkabel)}
+    <div class="field" id="aantal-kabels-wrap" style="${p.verlengkabel?'':'display:none'};margin-top:8px">
+      <label>Aantal verlengkabels</label>
+      <input type="number" min="0" id="aantal-kabels" value="${escapeHtml(p.aantalKabels||'')}">
+    </div>
+    ${checkRow('chk-netjes','Kasteel in nette staat achtergelaten','', p.netjes)}
+    <div class="field" style="margin-top:10px">
+      <label>Opmerkingen</label>
+      <textarea id="plaatsing-opmerkingen" placeholder="Eventuele opmerkingen bij plaatsing">${escapeHtml(p.opmerkingen||'')}</textarea>
+    </div>
+  `;
+}
+
+function renderAfhalingChecklist(d){
+  const a = d.afhaling;
+  return `
+    ${checkRow('chk-valmatten-terug','Valmatten terug mee','', a.valmattenTerug)}
+    ${checkRow('chk-kabels-terug','Verlengkabels terug mee','', a.kabelsTerug)}
+    ${checkRow('chk-nat-vuil','Kasteel nat of vuil','', a.natOfVuil)}
+    ${checkRow('chk-reiniging','Reiniging nodig','', a.reinigingNodig)}
+    <div class="field" style="margin-top:10px">
+      <label>Opmerkingen bij afhaling</label>
+      <textarea id="afhaling-opmerkingen" placeholder="Eventuele opmerkingen bij afhaling">${escapeHtml(a.opmerkingen||'')}</textarea>
+    </div>
+  `;
+}
+
+async function refreshPhotoGrid(id){
+  const grid = document.getElementById('photos-grid');
+  if(!grid) return;
+  const photos = await loadPhotos(id);
+  grid.innerHTML = photos.map((p)=>`
+    <div class="photo-thumb"><img src="${p.dataUrl}"><div class="rm" data-id="${p.id}">✕</div></div>
+  `).join('') + '<div class="add-photo" id="add-photo-btn">+</div>';
+  document.getElementById('add-photo-btn').addEventListener('click', ()=> document.getElementById('photo-input').click());
+  grid.querySelectorAll('.rm').forEach(btn=>{
+    btn.addEventListener('click', async (e)=>{
+      e.stopPropagation();
+      try{
+        await removePhotoRemote(id, btn.dataset.id);
+      }catch(err){ showToast(err.message); }
+      refreshPhotoGrid(id);
+    });
+  });
+}
+
+function resizeImageFile(file, maxWidth=900, quality=0.62){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, maxWidth / img.width);
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function bindDetailEvents(d){
+  document.getElementById('back-btn').addEventListener('click', ()=> setView('list'));
+
+  document.getElementById('waze-btn').addEventListener('click', ()=>{
+    window.open(wazeUrl(d.adres), '_blank');
+  });
+
+  document.getElementById('status-select').addEventListener('change', async (e)=>{
+    const prev = d.status;
+    d.status = e.target.value;
+    try{ await saveDeliveries(d); showToast('Status bijgewerkt'); }
+    catch(err){ d.status = prev; showToast(err.message); }
+  });
+
+  const assignSelect = document.getElementById('assign-select');
+  if(assignSelect){
+    assignSelect.addEventListener('change', async (e)=>{
+      const prev = d.toegewezenAan;
+      const uid = e.target.value;
+      const user = assignableUsers.find(u => String(u.id) === uid);
+      d.toegewezenAan = user ? { id: user.id, naam: user.naam } : null;
+      try{ await saveDeliveries(d); showToast(user ? 'Toegewezen aan ' + user.naam : 'Niet meer toegewezen'); }
+      catch(err){ d.toegewezenAan = prev; showToast(err.message); }
+    });
+  }
+
+  // toggles
+  ['chk-correct','chk-valmatten','chk-kabel','chk-netjes',
+   'chk-valmatten-terug','chk-kabels-terug','chk-nat-vuil','chk-reiniging'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(!el) return;
+    el.addEventListener('click', ()=>{
+      const on = el.dataset.checked !== '1';
+      el.dataset.checked = on ? '1' : '0';
+      el.classList.toggle('on', on);
+      if(id === 'chk-kabel'){
+        document.getElementById('aantal-kabels-wrap').style.display = on ? '' : 'none';
+      }
+    });
+  });
+
+  document.querySelectorAll('#bevestiging-pills .pill').forEach(p=>{
+    p.addEventListener('click', ()=>{
+      document.querySelectorAll('#bevestiging-pills .pill').forEach(x=>x.classList.remove('active'));
+      p.classList.add('active');
+    });
+  });
+  document.querySelectorAll('#betaling-pills .pill').forEach(p=>{
+    p.addEventListener('click', ()=>{
+      document.querySelectorAll('#betaling-pills .pill').forEach(x=>x.classList.remove('active'));
+      p.classList.add('active');
+    });
+  });
+
+  refreshPhotoGrid(d.id);
+  document.getElementById('photo-input').addEventListener('change', async (e)=>{
+    const files = Array.from(e.target.files || []);
+    if(files.length === 0) return;
+    const existing = await loadPhotos(d.id);
+    if(existing.length + files.length > 8){
+      showToast('Max 8 foto\'s per dossier');
+    }
+    try{
+      for(const f of files.slice(0, Math.max(0, 8 - existing.length))){
+        const dataUrl = await resizeImageFile(f);
+        await addPhotoRemote(d.id, f.name, dataUrl);
+      }
+    }catch(err){ showToast(err.message); }
+    e.target.value = '';
+    refreshPhotoGrid(d.id);
+  });
+
+  document.getElementById('save-checklist').addEventListener('click', ()=> collectAndSave(d, true));
+  document.getElementById('make-pdf').addEventListener('click', async ()=>{
+    await collectAndSave(d, false);
+    await generateAndOfferPdf(d);
+  });
+
+  const confirmPlaatsingBtn = document.getElementById('confirm-plaatsing');
+  if(confirmPlaatsingBtn){
+    confirmPlaatsingBtn.addEventListener('click', async ()=>{
+      collectFromForm(d);
+      d.plaatsing.bevestigd = true;
+      d.plaatsing.bevestigdOp = new Date().toISOString();
+      if(d.status === 'te-leveren') d.status = 'geplaatst';
+      try{
+        await saveDeliveries(d);
+        showToast('Levering bevestigd — niet langer aanpasbaar');
+        setView('detail', d.id);
+      }catch(err){
+        d.plaatsing.bevestigd = false;
+        showToast(err.message);
+      }
+    });
+  }
+  const editPlaatsingBtn = document.getElementById('edit-plaatsing');
+  if(editPlaatsingBtn){
+    editPlaatsingBtn.addEventListener('click', async ()=>{
+      d.plaatsing.bevestigd = false;
+      try{
+        await saveDeliveries(d);
+        showToast('Levering staat weer open om te bewerken');
+        setView('detail', d.id);
+      }catch(err){
+        d.plaatsing.bevestigd = true;
+        showToast(err.message);
+      }
+    });
+  }
+  const confirmAfhalingBtn = document.getElementById('confirm-afhaling');
+  if(confirmAfhalingBtn){
+    confirmAfhalingBtn.addEventListener('click', async ()=>{
+      collectFromForm(d);
+      const prevStatus = d.status;
+      d.afhaling.bevestigd = true;
+      d.afhaling.bevestigdOp = new Date().toISOString();
+      d.status = 'afgerond';
+      try{
+        await saveDeliveries(d);
+        showToast('Afhaling bevestigd — dossier afgerond');
+        setView('detail', d.id);
+      }catch(err){
+        d.afhaling.bevestigd = false;
+        d.status = prevStatus;
+        showToast(err.message);
+      }
+    });
+  }
+  const editAfhalingBtn = document.getElementById('edit-afhaling');
+  if(editAfhalingBtn){
+    editAfhalingBtn.addEventListener('click', async ()=>{
+      const prevStatus = d.status;
+      d.afhaling.bevestigd = false;
+      if(d.status === 'afgerond') d.status = 'geplaatst';
+      try{
+        await saveDeliveries(d);
+        showToast('Afhaling staat weer open om te bewerken');
+        setView('detail', d.id);
+      }catch(err){
+        d.afhaling.bevestigd = true;
+        d.status = prevStatus;
+        showToast(err.message);
+      }
+    });
+  }
+}
+
+function collectFromForm(d){
+  d.afhaaldatum = document.getElementById('afhaaldatum').value;
+  d.afhaaltijd = document.getElementById('afhaaltijd').value;
+
+  d.plaatsing.correctGeplaatst = document.getElementById('chk-correct').dataset.checked === '1';
+  const bevestigingActive = document.querySelector('#bevestiging-pills .pill.active');
+  d.plaatsing.bevestiging = bevestigingActive ? bevestigingActive.dataset.val : '';
+  d.plaatsing.valmatten = document.getElementById('chk-valmatten').dataset.checked === '1';
+  d.plaatsing.verlengkabel = document.getElementById('chk-kabel').dataset.checked === '1';
+  d.plaatsing.aantalKabels = document.getElementById('aantal-kabels').value;
+  d.plaatsing.netjes = document.getElementById('chk-netjes').dataset.checked === '1';
+  d.plaatsing.opmerkingen = document.getElementById('plaatsing-opmerkingen').value;
+  if(!d.plaatsing.tijdstip) d.plaatsing.tijdstip = new Date().toISOString();
+
+  const betalingActive = document.querySelector('#betaling-pills .pill.active');
+  d.betaling.status = betalingActive ? betalingActive.dataset.val : '';
+  d.betaling.opmerking = document.getElementById('betaling-opmerking').value;
+
+  d.afhaling.valmattenTerug = document.getElementById('chk-valmatten-terug').dataset.checked === '1';
+  d.afhaling.kabelsTerug = document.getElementById('chk-kabels-terug').dataset.checked === '1';
+  d.afhaling.natOfVuil = document.getElementById('chk-nat-vuil').dataset.checked === '1';
+  d.afhaling.reinigingNodig = document.getElementById('chk-reiniging').dataset.checked === '1';
+  d.afhaling.opmerkingen = document.getElementById('afhaling-opmerkingen').value;
+  if((d.afhaling.valmattenTerug || d.afhaling.kabelsTerug || d.afhaling.opmerkingen) && !d.afhaling.tijdstip){
+    d.afhaling.tijdstip = new Date().toISOString();
+  }
+}
+
+async function collectAndSave(d, toast){
+  collectFromForm(d);
+  try{
+    await saveDeliveries(d);
+  }catch(err){
+    showToast(err.message);
+    return;
+  }
+  if(toast) showToast('Opgeslagen');
+}
+
+// ---------- PDF generation ----------
+async function generateAndOfferPdf(d){
+  if(!window.jspdf){ showToast('PDF-bibliotheek nog aan het laden, probeer opnieuw'); return; }
+  const photos = await loadPhotos(d.id);
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const marginL = 16;
+  let y = 18;
+  const pageH = doc.internal.pageSize.getHeight();
+  const pageW = doc.internal.pageSize.getWidth();
+
+  function ensureSpace(h){
+    if(y + h > pageH - 16){ doc.addPage(); y = 18; }
+  }
+  function heading(text){
+    ensureSpace(10);
+    doc.setFont('helvetica','bold'); doc.setFontSize(12); doc.setTextColor(232,99,30);
+    doc.text(text, marginL, y); y += 6;
+    doc.setDrawColor(232,99,30); doc.setLineWidth(0.4);
+    doc.line(marginL, y-4.5, pageW-marginL, y-4.5);
+    doc.setTextColor(30,30,30);
+  }
+  function line(label, value){
+    ensureSpace(6.5);
+    doc.setFont('helvetica','bold'); doc.setFontSize(10);
+    doc.text(label + ':', marginL, y);
+    doc.setFont('helvetica','normal');
+    const wrapped = doc.splitTextToSize(String(value || '—'), pageW - marginL*2 - 45);
+    doc.text(wrapped, marginL + 45, y);
+    y += Math.max(6, wrapped.length * 5);
+  }
+  function checkline(label, checked){
+    line(label, checked ? 'Ja' : 'Nee');
+  }
+
+  doc.setFont('helvetica','bold'); doc.setFontSize(18); doc.setTextColor(30,30,30);
+  doc.text('Belair-Fun', marginL, y); y += 7;
+  doc.setFontSize(13); doc.setTextColor(90,90,90);
+  doc.text('Plaatsingsverslag', marginL, y); y += 4;
+  doc.setDrawColor(210,210,210); doc.line(marginL, y, pageW-marginL, y); y += 8;
+  doc.setTextColor(30,30,30);
+
+  heading('Klantgegevens');
+  line('Dossiernummer', d.id);
+  line('Klant', d.klant);
+  line('Adres', d.adres);
+  line('Telefoon', d.telefoon);
+  line('E-mail', d.email);
+  line('Leverdatum', fmtDate(d.datum) + (d.tijdslot ? ' — ' + d.tijdslot : ''));
+  line('Artikelen', d.artikelen);
+  if(d.ondergrond) line('Ondergrond', d.ondergrond);
+  if(d.bedrag) line('Te ontvangen', '€ ' + d.bedrag);
+  y += 2;
+
+  heading('Afhaling');
+  line('Afhaaldatum', d.afhaaldatum ? fmtDate(d.afhaaldatum) : '—');
+  line('Afhaaltijd', d.afhaaltijd || '—');
+  y += 2;
+
+  heading('Checklist bij plaatsing');
+  checkline('Springkasteel correct geplaatst', d.plaatsing.correctGeplaatst);
+  line('Bevestiging', d.plaatsing.bevestiging === 'pinnen' ? 'Pinnen' : d.plaatsing.bevestiging === 'zandzakken' ? 'Zandzakken' : d.plaatsing.bevestiging === 'geen' ? 'Geen' : '—');
+  checkline('Valmatten gebruikt', d.plaatsing.valmatten);
+  checkline('Verlengkabel gebruikt', d.plaatsing.verlengkabel);
+  if(d.plaatsing.verlengkabel) line('Aantal verlengkabels', d.plaatsing.aantalKabels || '—');
+  checkline('Nette staat achtergelaten', d.plaatsing.netjes);
+  line('Opmerkingen', d.plaatsing.opmerkingen || '—');
+  y += 2;
+
+  const betalingLabel = { 'voldaan-cash':'Voldaan (cash ter plaatse)', 'voldaan-overschrijving':'Voldaan via overschrijving', 'factuur':'Factuur wordt opgemaakt' }[d.betaling.status] || '—';
+  heading('Betaling');
+  line('Status', betalingLabel);
+  line('Opmerking', d.betaling.opmerking || '—');
+  y += 2;
+
+  const hasAfhalingData = d.afhaling.valmattenTerug || d.afhaling.kabelsTerug || d.afhaling.natOfVuil || d.afhaling.reinigingNodig || d.afhaling.opmerkingen;
+  if(hasAfhalingData){
+    heading('Checklist bij afhaling');
+    checkline('Valmatten terug mee', d.afhaling.valmattenTerug);
+    checkline('Verlengkabels terug mee', d.afhaling.kabelsTerug);
+    checkline('Kasteel nat of vuil', d.afhaling.natOfVuil);
+    checkline('Reiniging nodig', d.afhaling.reinigingNodig);
+    line('Opmerkingen', d.afhaling.opmerkingen || '—');
+    y += 2;
+  }
+
+  if(photos.length){
+    heading('Foto\'s');
+    const thumbW = (pageW - marginL*2 - 8) / 3;
+    const thumbH = thumbW * 0.75;
+    let col = 0;
+    photos.forEach((p)=>{
+      ensureSpace(thumbH + 4);
+      const x = marginL + col * (thumbW + 4);
+      try{ doc.addImage(p.dataUrl, 'JPEG', x, y, thumbW, thumbH); }catch(err){}
+      col++;
+      if(col === 3){ col = 0; y += thumbH + 4; }
+    });
+    if(col !== 0) y += thumbH + 4;
+  }
+
+  ensureSpace(20);
+  y += 4;
+  doc.setDrawColor(210,210,210); doc.line(marginL, y, pageW-marginL, y); y += 6;
+  doc.setFontSize(9); doc.setTextColor(140,140,140);
+  doc.text('Gegenereerd op ' + new Date().toLocaleString('nl-BE'), marginL, y);
+
+  const fileName = 'plaatsingsverslag-' + (d.klant || 'klant').replace(/[^a-z0-9]+/gi,'-').toLowerCase() + '-' + d.datum + '.pdf';
+
+  // Try native share (allows picking Mail app on mobile), fallback to download
+  try{
+    const blob = doc.output('blob');
+    const file = new File([blob], fileName, { type: 'application/pdf' });
+    if(navigator.canShare && navigator.canShare({ files: [file] })){
+      await navigator.share({ files: [file], title: 'Plaatsingsverslag ' + d.klant, text: 'Plaatsingsverslag Belair-Fun — ' + d.klant });
+      showToast('Verslag klaar om te delen');
+      return;
+    }
+  }catch(err){ /* user cancelled or unsupported, fall through to download */ }
+
+  doc.save(fileName);
+  showToast('PDF gedownload');
+}
+
+// ---------- DOSSIERS (overview of completed / all with saved checklists) ----------
+function renderDossiers(){
+  const relevant = deliveries.filter(d => d.plaatsing.tijdstip || d.status === 'afgerond');
+  if(relevant.length === 0){
+    return `<div class="empty"><div class="big">Nog geen dossiers</div>Zodra je een checklist invult of een verslag maakt, verschijnt het dossier hier.</div>`;
+  }
+  const sorted = [...relevant].sort((a,b)=> (b.datum||'').localeCompare(a.datum||''));
+  return sorted.map(d=>`
+    <div class="card status-${d.status}" data-id="${d.id}" data-open="1">
+      <div class="row1">
+        <div>
+          <div class="klant">${escapeHtml(d.klant)}</div>
+          <div class="adres">${escapeHtml(d.adres)}</div>
+        </div>
+        <div class="tijd">${fmtDate(d.datum)}</div>
+      </div>
+      <span class="badge ${d.status}">${STATUS_LABEL[d.status]}</span>
+      <div class="stack" style="margin-top:10px">
+        <button class="btn small secondary" data-pdf="${d.id}">Verslag downloaden / delen</button>
+      </div>
+    </div>
+  `).join('');
+}
+function bindDossierEvents(){
+  document.querySelectorAll('[data-open]').forEach(c=>{
+    c.addEventListener('click', (e)=>{
+      if(e.target.closest('[data-pdf]')) return;
+      setView('detail', c.dataset.id);
+    });
+  });
+  document.querySelectorAll('[data-pdf]').forEach(btn=>{
+    btn.addEventListener('click', async (e)=>{
+      e.stopPropagation();
+      const d = getDelivery(btn.dataset.pdf);
+      if(d) await generateAndOfferPdf(d);
+    });
+  });
+}
+
+// ---------- Tab bar ----------
+document.querySelectorAll('.tab-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=> setView(btn.dataset.tab));
+});
+
+// ---------- Auth screens ----------
+function showAuthScreen(){
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('authScreen').style.display = 'block';
+  renderAuthForm();
+}
+let assignableUsers = [];
+async function showApp(){
+  document.getElementById('authScreen').style.display = 'none';
+  document.getElementById('app').style.display = 'flex';
+  document.getElementById('teamTabBtn').style.display = (currentUser && currentUser.rol === 'admin') ? '' : 'none';
+  if(currentUser && currentUser.rol === 'admin'){
+    try{ assignableUsers = await apiFetch('/api/users'); }catch(e){ assignableUsers = []; }
+  }
+  await loadDeliveries();
+  setView('list');
+}
+
+function renderAuthForm(){
+  const sub = document.getElementById('authSub');
+  const form = document.getElementById('authForm');
+  if(authMode === 'setup'){
+    sub.textContent = 'Eerste installatie — maak het beheerdersaccount aan';
+    form.innerHTML = `
+      <div class="field"><label>Installatiecode</label><input type="text" id="a-setupkey" placeholder="Zoals ingesteld op de server"></div>
+      <div class="field"><label>Jouw naam</label><input type="text" id="a-naam" placeholder="Bv. Jonas"></div>
+      <div class="field"><label>Gebruikersnaam</label><input type="text" id="a-username" placeholder="Bv. jonas"></div>
+      <div class="field"><label>Wachtwoord</label><input type="text" id="a-password" placeholder="Kies een wachtwoord"></div>
+      <div class="error" id="a-error"></div>
+      <button class="btn" id="a-submit">Account aanmaken</button>
+    `;
+    document.getElementById('a-submit').addEventListener('click', async ()=>{
+      const body = {
+        setupKey: document.getElementById('a-setupkey').value,
+        naam: document.getElementById('a-naam').value.trim(),
+        username: document.getElementById('a-username').value.trim(),
+        password: document.getElementById('a-password').value
+      };
+      try{
+        const r = await apiFetch('/api/setup', { method:'POST', body: JSON.stringify(body) });
+        authToken = r.token; currentUser = r.user;
+        localStorage.setItem('bf-token', authToken);
+        showApp();
+      }catch(err){ document.getElementById('a-error').textContent = err.message; }
+    });
+  } else {
+    sub.textContent = 'Log in om verder te gaan';
+    form.innerHTML = `
+      <div class="field"><label>Gebruikersnaam</label><input type="text" id="a-username" autocomplete="username"></div>
+      <div class="field"><label>Wachtwoord</label><input type="password" id="a-password" autocomplete="current-password"></div>
+      <div class="error" id="a-error"></div>
+      <button class="btn" id="a-submit">Inloggen</button>
+    `;
+    document.getElementById('a-submit').addEventListener('click', doLogin);
+    document.getElementById('a-password').addEventListener('keydown', (e)=>{ if(e.key === 'Enter') doLogin(); });
+  }
+}
+async function doLogin(){
+  const username = document.getElementById('a-username').value.trim();
+  const password = document.getElementById('a-password').value;
+  try{
+    const r = await apiFetch('/api/login', { method:'POST', body: JSON.stringify({ username, password }) });
+    authToken = r.token; currentUser = r.user;
+    localStorage.setItem('bf-token', authToken);
+    showApp();
+  }catch(err){ document.getElementById('a-error').textContent = err.message; }
+}
+
+// ---------- Init ----------
+(async function init(){
+  try{
+    const status = await apiFetch('/api/setup-status');
+    if(status.needsSetup){
+      authMode = 'setup';
+      showAuthScreen();
+      return;
+    }
+  }catch(err){
+    showAuthScreen();
+    document.getElementById('authForm').innerHTML = `<div class="error">Kan de server niet bereiken. Probeer de pagina te herladen.</div>`;
+    return;
+  }
+
+  if(authToken){
+    try{
+      const r = await apiFetch('/api/me');
+      currentUser = r.user;
+      await showApp();
+      return;
+    }catch(err){ /* token ongeldig, val terug op login */ }
+  }
+  authMode = 'login';
+  showAuthScreen();
+})();
+
+</script>
+</body>
+</html>

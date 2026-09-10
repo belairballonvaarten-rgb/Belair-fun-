@@ -1,0 +1,300 @@
+require('dotenv').config();
+const express = require('express');
+const { Pool } = require('pg');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const path = require('path');
+const XLSX = require('xlsx');
+
+const app = express();
+app.use(express.json({ limit: '20mb' })); // foto's en Excel-import zijn base64, dus ruim genoeg limiet
+app.use(express.static(path.join(__dirname, 'public')));
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL && !process.env.DATABASE_URL.includes('localhost')
+    ? { rejectUnauthorized: false }
+    : false
+});
+
+const JWT_SECRET = process.env.JWT_SECRET || 'verander-deze-waarde';
+const SETUP_KEY = process.env.SETUP_KEY || 'verander-deze-waarde-ook';
+
+async function initDb() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users(
+      id SERIAL PRIMARY KEY,
+      username TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      naam TEXT NOT NULL,
+      rol TEXT NOT NULL DEFAULT 'plaatser',
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+    CREATE TABLE IF NOT EXISTS deliveries(
+      id TEXT PRIMARY KEY,
+      data JSONB NOT NULL,
+      created_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMPTZ DEFAULT now(),
+      updated_at TIMESTAMPTZ DEFAULT now()
+    );
+    CREATE TABLE IF NOT EXISTS photos(
+      id SERIAL PRIMARY KEY,
+      delivery_id TEXT REFERENCES deliveries(id) ON DELETE CASCADE,
+      naam TEXT,
+      data_url TEXT,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+}
+
+function signToken(user) {
+  return jwt.sign(
+    { id: user.id, username: user.username, naam: user.naam, rol: user.rol },
+    JWT_SECRET,
+    { expiresIn: '30d' }
+  );
+}
+
+let idCounter = 0;
+function genId() {
+  idCounter++;
+  return 'd' + Date.now().toString(36) + idCounter.toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+function emptyDeliveryServer() {
+  return {
+    id: genId(),
+    klant: '', telefoon: '', email: '', adres: '', postcode: '', ondergrond: '',
+    datum: '', tijdslot: '',
+    afhaaldatum: '', afhaaltijd: '',
+    artikelen: '', bedrag: '',
+    status: 'te-leveren',
+    toegewezenAan: null,
+    plaatsing: {
+      correctGeplaatst: false, bevestiging: '', valmatten: false, verlengkabel: false,
+      aantalKabels: '', netjes: false, opmerkingen: '', tijdstip: '', bevestigd: false, bevestigdOp: ''
+    },
+    betaling: { status: '', opmerking: '' },
+    afhaling: {
+      valmattenTerug: false, kabelsTerug: false, natOfVuil: false, reinigingNodig: false,
+      opmerkingen: '', tijdstip: '', bevestigd: false, bevestigdOp: ''
+    }
+  };
+}
+
+function normalizeDate(v) {
+  if (!v) return '';
+  const s = String(v).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  return s;
+}
+function normalizeTime(v) {
+  if (!v) return '';
+  const s = String(v).trim();
+  const m = s.match(/^(\d{1,2}):(\d{2})/);
+  if (m) return m[1].padStart(2, '0') + ':' + m[2];
+  return s;
+}
+function getField(row, ...names) {
+  for (const key of Object.keys(row)) {
+    const norm = key.trim().toLowerCase();
+    if (names.some(n => n.toLowerCase() === norm)) {
+      const v = row[key];
+      return v === undefined || v === null ? '' : String(v).trim();
+    }
+  }
+  return '';
+}
+
+function auth(req, res, next) {
+  const h = req.headers.authorization || '';
+  const token = h.startsWith('Bearer ') ? h.slice(7) : null;
+  if (!token) return res.status(401).json({ error: 'Niet ingelogd' });
+  try {
+    req.user = jwt.verify(token, JWT_SECRET);
+    next();
+  } catch (e) {
+    res.status(401).json({ error: 'Sessie verlopen, log opnieuw in' });
+  }
+}
+function adminOnly(req, res, next) {
+  if (req.user.rol !== 'admin') return res.status(403).json({ error: 'Enkel voor administrators' });
+  next();
+}
+
+// ---------- Eerste installatie ----------
+app.get('/api/setup-status', async (req, res) => {
+  const r = await pool.query('SELECT COUNT(*)::int AS c FROM users');
+  res.json({ needsSetup: r.rows[0].c === 0 });
+});
+
+app.post('/api/setup', async (req, res) => {
+  const { setupKey, username, password, naam } = req.body || {};
+  const r = await pool.query('SELECT COUNT(*)::int AS c FROM users');
+  if (r.rows[0].c > 0) return res.status(400).json({ error: 'Installatie is al uitgevoerd' });
+  if (setupKey !== SETUP_KEY) return res.status(403).json({ error: 'Verkeerde installatiecode' });
+  if (!username || !password || !naam) return res.status(400).json({ error: 'Vul alle velden in' });
+  const hash = await bcrypt.hash(password, 10);
+  const ins = await pool.query(
+    'INSERT INTO users(username,password_hash,naam,rol) VALUES ($1,$2,$3,$4) RETURNING id,username,naam,rol',
+    [username, hash, naam, 'admin']
+  );
+  const user = ins.rows[0];
+  res.json({ token: signToken(user), user });
+});
+
+// ---------- Login ----------
+app.post('/api/login', async (req, res) => {
+  const { username, password } = req.body || {};
+  const r = await pool.query('SELECT * FROM users WHERE username=$1', [username]);
+  if (r.rows.length === 0) return res.status(401).json({ error: 'Onbekende gebruiker' });
+  const user = r.rows[0];
+  const ok = await bcrypt.compare(password || '', user.password_hash);
+  if (!ok) return res.status(401).json({ error: 'Verkeerd wachtwoord' });
+  res.json({
+    token: signToken(user),
+    user: { id: user.id, username: user.username, naam: user.naam, rol: user.rol }
+  });
+});
+app.get('/api/me', auth, (req, res) => res.json({ user: req.user }));
+
+// ---------- Gebruikersbeheer (enkel admin) ----------
+app.get('/api/users', auth, adminOnly, async (req, res) => {
+  const r = await pool.query('SELECT id,username,naam,rol,created_at FROM users ORDER BY naam');
+  res.json(r.rows);
+});
+app.post('/api/users', auth, adminOnly, async (req, res) => {
+  const { username, password, naam, rol } = req.body || {};
+  if (!username || !password || !naam) return res.status(400).json({ error: 'Vul alle velden in' });
+  const hash = await bcrypt.hash(password, 10);
+  try {
+    const ins = await pool.query(
+      'INSERT INTO users(username,password_hash,naam,rol) VALUES ($1,$2,$3,$4) RETURNING id,username,naam,rol',
+      [username, hash, naam, rol === 'admin' ? 'admin' : 'plaatser']
+    );
+    res.json(ins.rows[0]);
+  } catch (e) {
+    if (e.code === '23505') return res.status(400).json({ error: 'Gebruikersnaam bestaat al' });
+    res.status(500).json({ error: 'Kon gebruiker niet aanmaken' });
+  }
+});
+app.delete('/api/users/:id', auth, adminOnly, async (req, res) => {
+  if (String(req.user.id) === req.params.id) return res.status(400).json({ error: 'Je kan jezelf niet verwijderen' });
+  await pool.query('DELETE FROM users WHERE id=$1', [req.params.id]);
+  res.json({ ok: true });
+});
+
+// ---------- Leveringen (gedeelde planning, iedereen ziet alles) ----------
+app.get('/api/deliveries', auth, async (req, res) => {
+  const r = await pool.query('SELECT data FROM deliveries ORDER BY updated_at DESC');
+  res.json(r.rows.map(row => row.data));
+});
+app.post('/api/deliveries', auth, async (req, res) => {
+  const d = req.body;
+  if (!d || !d.id) return res.status(400).json({ error: 'Ongeldige levering' });
+  await pool.query('INSERT INTO deliveries(id, data, created_by) VALUES ($1,$2,$3)', [d.id, d, req.user.id]);
+  res.json({ ok: true });
+});
+app.put('/api/deliveries/:id', auth, async (req, res) => {
+  const d = req.body;
+  await pool.query('UPDATE deliveries SET data=$1, updated_at=now() WHERE id=$2', [d, req.params.id]);
+  res.json({ ok: true });
+});
+app.delete('/api/deliveries/:id', auth, adminOnly, async (req, res) => {
+  await pool.query('DELETE FROM deliveries WHERE id=$1', [req.params.id]);
+  res.json({ ok: true });
+});
+
+// ---------- Excel-import van de planning ----------
+app.post('/api/import', auth, adminOnly, async (req, res) => {
+  const { fileBase64 } = req.body || {};
+  if (!fileBase64) return res.status(400).json({ error: 'Geen bestand ontvangen' });
+
+  let rows;
+  try {
+    const buf = Buffer.from(fileBase64, 'base64');
+    const wb = XLSX.read(buf, { type: 'buffer' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    rows = XLSX.utils.sheet_to_json(ws, { raw: false, defval: '' });
+  } catch (e) {
+    return res.status(400).json({ error: 'Kon het Excel-bestand niet lezen. Is het een geldig .xlsx-bestand?' });
+  }
+
+  let imported = 0;
+  const skipped = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const klant = getField(row, 'Customer Name', 'Klant', 'Naam');
+    const adres1 = getField(row, 'Delivery Address 1', 'Adres', 'Address');
+    if (!klant && !adres1) continue; // lege rij, geen fout
+
+    if (!klant || !adres1) {
+      skipped.push({ rij: i + 2, reden: 'Klantnaam of adres ontbreekt' });
+      continue;
+    }
+
+    const stad = getField(row, 'Delivery Town', 'Gemeente', 'Town');
+    const postcode = getField(row, 'Delivery Postcode', 'Postcode');
+    const adres = [adres1, [postcode, stad].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+
+    const d = emptyDeliveryServer();
+    d.klant = klant;
+    d.telefoon = getField(row, 'Mobile', 'Telefoon', 'Tel');
+    d.email = getField(row, 'Email', 'E-mail');
+    d.adres = adres;
+    d.postcode = postcode;
+    d.ondergrond = getField(row, 'Surface', 'Ondergrond');
+    d.datum = normalizeDate(getField(row, 'Delivery Date', 'Leverdatum'));
+    d.tijdslot = normalizeTime(getField(row, 'Drop Off', 'Levertijd'));
+    d.afhaaldatum = normalizeDate(getField(row, 'Collection Date', 'Afhaaldatum'));
+    d.afhaaltijd = normalizeTime(getField(row, 'Collection', 'Afhaaltijd'));
+    d.artikelen = getField(row, 'Item', 'Artikelen');
+    d.bedrag = getField(row, 'Balance', 'Bedrag', 'Saldo');
+    d.plaatsing.tijdstip = '';
+
+    try {
+      await pool.query('INSERT INTO deliveries(id, data, created_by) VALUES ($1,$2,$3)', [d.id, d, req.user.id]);
+      imported++;
+    } catch (e) {
+      skipped.push({ rij: i + 2, reden: 'Kon niet opgeslagen worden' });
+    }
+  }
+
+  res.json({ imported, skipped });
+});
+
+// ---------- Foto's ----------
+app.get('/api/deliveries/:id/photos', auth, async (req, res) => {
+  const r = await pool.query(
+    'SELECT id, naam, data_url AS "dataUrl" FROM photos WHERE delivery_id=$1 ORDER BY id',
+    [req.params.id]
+  );
+  res.json(r.rows);
+});
+app.post('/api/deliveries/:id/photos', auth, async (req, res) => {
+  const { naam, dataUrl } = req.body || {};
+  const ins = await pool.query(
+    'INSERT INTO photos(delivery_id, naam, data_url) VALUES ($1,$2,$3) RETURNING id, naam, data_url AS "dataUrl"',
+    [req.params.id, naam || '', dataUrl]
+  );
+  res.json(ins.rows[0]);
+});
+app.delete('/api/deliveries/:deliveryId/photos/:photoId', auth, async (req, res) => {
+  await pool.query('DELETE FROM photos WHERE id=$1 AND delivery_id=$2', [req.params.photoId, req.params.deliveryId]);
+  res.json({ ok: true });
+});
+
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+const PORT = process.env.PORT || 3000;
+initDb()
+  .then(() => app.listen(PORT, () => console.log('Belair-Fun API draait op poort ' + PORT)))
+  .catch(err => {
+    console.error('Kon database niet initialiseren:', err);
+    process.exit(1);
+  });
