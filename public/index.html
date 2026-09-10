@@ -683,8 +683,12 @@ let teamUsers = [];
 function renderTeam(){
   return `
   <div class="section">
-    <h3>Team</h3>
-    <div id="team-list">Laden...</div>
+    <h3>Per chauffeur</h3>
+    <div class="field" style="margin-bottom:14px">
+      <label>Dag bekijken</label>
+      <input type="date" id="per-driver-date" value="${perDriverDate}">
+    </div>
+    <div id="per-driver-list">Laden...</div>
   </div>
   <div class="section">
     <h3>Locatie chauffeurs</h3>
@@ -699,12 +703,8 @@ function renderTeam(){
     <div id="unassigned-list">Laden...</div>
   </div>
   <div class="section">
-    <h3>Per chauffeur</h3>
-    <div class="field" style="margin-bottom:14px">
-      <label>Dag bekijken</label>
-      <input type="date" id="per-driver-date" value="${perDriverDate}">
-    </div>
-    <div id="per-driver-list">Laden...</div>
+    <h3>Team</h3>
+    <div id="team-list">Laden...</div>
   </div>
   <div class="section">
     <h3>Nieuw teamlid</h3>
