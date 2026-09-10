@@ -826,6 +826,14 @@ function cardHtml(d, extraClass){
     </div>` : ''}
   </div>`;
 }
+function relevantDateForItem(d){
+  return (d.status === 'geplaatst' || d.status === 'afgerond') ? (d.afhaaldatum || d.datum) : d.datum;
+}
+function weekCutoffISO(){
+  const d = new Date();
+  d.setDate(d.getDate() + 6);
+  return d.toISOString().slice(0,10);
+}
 function renderList(){
   const filterBar = `
     <div class="pillgroup" id="list-filter-pills" style="margin-bottom:10px">
@@ -837,12 +845,21 @@ function renderList(){
       <span class="pill ${typeFilter==='leveringen'?'active':''}" data-val="leveringen">Leveringen</span>
       <span class="pill ${typeFilter==='afhalingen'?'active':''}" data-val="afhalingen">Afhalingen</span>
     </div>
+    ${currentUser.rol !== 'admin' ? `<div class="queue-note" style="margin-bottom:16px;text-align:left">Je ziet hier de planning tot en met de komende week. Voor de volledige planning: vraag de admin.</div>` : ''}
   `;
-  const visible = listFilter === 'mij'
+  let visible = listFilter === 'mij'
     ? deliveries.filter(d =>
         (d.toegewezenAan && d.toegewezenAan.id === currentUser.id) ||
         (d.toegewezenAanAfhaling && d.toegewezenAanAfhaling.id === currentUser.id))
     : deliveries;
+
+  if(currentUser.rol !== 'admin'){
+    const cutoff = weekCutoffISO();
+    visible = visible.filter(d => {
+      const datum = relevantDateForItem(d);
+      return !datum || datum <= cutoff;
+    });
+  }
 
   if(deliveries.length === 0){
     return `<div class="empty">
@@ -851,7 +868,7 @@ function renderList(){
     </div>`;
   }
   if(visible.length === 0){
-    return filterBar + `<div class="empty"><div class="big">Niets voor jou toegewezen</div>Bekijk "Alles" om de volledige planning te zien.</div>`;
+    return filterBar + `<div class="empty"><div class="big">Niets gevonden</div>Bekijk "Alles" of vraag de admin naar de volledige planning.</div>`;
   }
 
   renderedSections = {};
@@ -1158,10 +1175,10 @@ function renderDetail(d){
   </div>
   ` : ''}
 
-  <button class="waze-btn" id="waze-btn">
+  ${d.adres ? `<button class="waze-btn" id="waze-btn">
     <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C7 2 3 6 3 11c0 5.2 7.4 10.4 8.4 11a1 1 0 0 0 1.2 0C13.6 21.4 21 16.2 21 11c0-5-4-9-9-9zm0 12a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"/></svg>
     Start route in Waze
-  </button>
+  </button>` : `<div class="queue-note">Geen adres bekend voor deze boeking — vul het aan om Waze te kunnen gebruiken.</div>`}
 
   ${(d.artikelen || d.bedrag || d.ondergrond || d.boekingsnummer) ? `<div class="section">
     <h3>Artikelen &amp; details</h3>
@@ -1347,9 +1364,12 @@ function resizeImageFile(file, maxWidth=900, quality=0.62){
 function bindDetailEvents(d){
   document.getElementById('back-btn').addEventListener('click', ()=> setView('list'));
 
-  document.getElementById('waze-btn').addEventListener('click', ()=>{
-    window.open(wazeUrl(d.adres), '_blank');
-  });
+  const wazeBtn = document.getElementById('waze-btn');
+  if(wazeBtn){
+    wazeBtn.addEventListener('click', ()=>{
+      window.open(wazeUrl(d.adres), '_blank');
+    });
+  }
 
   document.getElementById('status-select').addEventListener('change', async (e)=>{
     const prev = d.status;
