@@ -811,26 +811,39 @@ async function loadDriverLocations(){
   try{ locs = await apiFetch('/api/locations'); }
   catch(err){ listEl.textContent = err.message; return; }
 
-  if(locationsMap){
-    locationsMap.remove();
-    locationsMap = null;
+  try{
+    if(typeof L === 'undefined'){
+      mapEl.textContent = 'Kaart kon niet geladen worden (probeer de pagina te herladen).';
+    } else {
+      if(locationsMap){
+        locationsMap.remove();
+        locationsMap = null;
+      }
+      locationsMap = L.map('locations-map', { attributionControl: false }).setView([50.98, 4.05], 8);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(locationsMap);
+      locationMarkers = [];
+    }
+  }catch(err){
+    console.error('Kaart laden mislukt:', err);
+    mapEl.textContent = 'Kaart kon niet geladen worden.';
   }
-  locationsMap = L.map('locations-map', { attributionControl: false }).setView([50.98, 4.05], 8);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(locationsMap);
-  locationMarkers = [];
 
   if(locs.length === 0){
     listEl.textContent = 'Nog geen chauffeur heeft de app recent open gehad.';
   } else {
     listEl.innerHTML = locs.map(l => `<div>📍 ${escapeHtml(l.naam)} — ${timeAgo(l.updated_at)}</div>`).join('');
-    const bounds = [];
-    locs.forEach(l=>{
-      const marker = L.marker([l.lat, l.lng]).addTo(locationsMap)
-        .bindPopup(escapeHtml(l.naam) + '<br>' + timeAgo(l.updated_at));
-      locationMarkers.push(marker);
-      bounds.push([l.lat, l.lng]);
-    });
-    if(bounds.length) locationsMap.fitBounds(bounds, { padding: [30,30], maxZoom: 14 });
+    if(locationsMap){
+      try{
+        const bounds = [];
+        locs.forEach(l=>{
+          const marker = L.marker([l.lat, l.lng]).addTo(locationsMap)
+            .bindPopup(escapeHtml(l.naam) + '<br>' + timeAgo(l.updated_at));
+          locationMarkers.push(marker);
+          bounds.push([l.lat, l.lng]);
+        });
+        if(bounds.length) locationsMap.fitBounds(bounds, { padding: [30,30], maxZoom: 14 });
+      }catch(err){ console.error('Pinnen plaatsen mislukt:', err); }
+    }
   }
   setTimeout(()=> locationsMap && locationsMap.invalidateSize(), 100);
 }
