@@ -683,31 +683,6 @@ let teamUsers = [];
 function renderTeam(){
   return `
   <div class="section">
-    <h3>Instellingen</h3>
-    <div class="field" style="margin-bottom:0">
-      <label>Google review-link</label>
-      <input type="text" id="s-google-review" value="${escapeHtml(appSettings.googleReviewUrl||'')}" placeholder="https://g.page/r/.../review">
-    </div>
-    <div style="font-size:12px;color:var(--text-dim);margin:8px 0 10px">
-      Vind je op je Google Bedrijfsprofiel via "Meer reviews krijgen" → link kopiëren.
-    </div>
-    <button class="btn small secondary" id="save-settings-btn">Opslaan</button>
-  </div>
-  <div class="section">
-    <h3>Nieuw teamlid</h3>
-    <div class="field"><label>Naam</label><input type="text" id="t-naam" placeholder="Bv. Kevin"></div>
-    <div class="field"><label>Gebruikersnaam (voor inloggen)</label><input type="text" id="t-username" placeholder="Bv. kevin"></div>
-    <div class="field"><label>Wachtwoord</label><input type="text" id="t-password" placeholder="Kies een wachtwoord"></div>
-    <div class="field">
-      <label>Rol</label>
-      <select id="t-rol">
-        <option value="plaatser">Plaatser</option>
-        <option value="admin">Administrator</option>
-      </select>
-    </div>
-    <button class="btn" id="add-user-btn">Teamlid toevoegen</button>
-  </div>
-  <div class="section">
     <h3>Team</h3>
     <div id="team-list">Laden...</div>
   </div>
@@ -725,7 +700,36 @@ function renderTeam(){
   </div>
   <div class="section">
     <h3>Per chauffeur</h3>
+    <div class="field" style="margin-bottom:14px">
+      <label>Dag bekijken</label>
+      <input type="date" id="per-driver-date" value="${perDriverDate}">
+    </div>
     <div id="per-driver-list">Laden...</div>
+  </div>
+  <div class="section">
+    <h3>Nieuw teamlid</h3>
+    <div class="field"><label>Naam</label><input type="text" id="t-naam" placeholder="Bv. Kevin"></div>
+    <div class="field"><label>Gebruikersnaam (voor inloggen)</label><input type="text" id="t-username" placeholder="Bv. kevin"></div>
+    <div class="field"><label>Wachtwoord</label><input type="text" id="t-password" placeholder="Kies een wachtwoord"></div>
+    <div class="field">
+      <label>Rol</label>
+      <select id="t-rol">
+        <option value="plaatser">Plaatser</option>
+        <option value="admin">Administrator</option>
+      </select>
+    </div>
+    <button class="btn" id="add-user-btn">Teamlid toevoegen</button>
+  </div>
+  <div class="section">
+    <h3>Instellingen</h3>
+    <div class="field" style="margin-bottom:0">
+      <label>Google review-link</label>
+      <input type="text" id="s-google-review" value="${escapeHtml(appSettings.googleReviewUrl||'')}" placeholder="https://g.page/r/.../review">
+    </div>
+    <div style="font-size:12px;color:var(--text-dim);margin:8px 0 10px">
+      Vind je op je Google Bedrijfsprofiel via "Meer reviews krijgen" → link kopiëren.
+    </div>
+    <button class="btn small secondary" id="save-settings-btn">Opslaan</button>
   </div>
   `;
 }
@@ -735,6 +739,7 @@ function miniRow(d, typeLabel){
   return `<div class="mini-row" data-id="${d.id}">
     <div class="mini-row-title">${escapeHtml(d.klant || 'Naamloos')} <span class="mini-row-type">${typeLabel}</span></div>
     <div class="mini-row-sub">${fmtDate(datum)}${tijd ? ' · ' + escapeHtml(tijd) : ''} — ${escapeHtml(d.adres || '')}</div>
+    <span class="badge ${d.status}" style="margin-top:6px">${STATUS_LABEL[d.status]}</span>
   </div>`;
 }
 function renderUnassigned(){
@@ -756,17 +761,19 @@ function renderUnassigned(){
   }
   return html;
 }
+let perDriverDate = todayISO();
 function renderPerDriver(){
   if(teamUsers.length === 0) return 'Nog geen teamleden.';
   return teamUsers.map(u=>{
-    const leveringen = deliveries.filter(d => d.status !== 'afgerond' && d.toegewezenAan && d.toegewezenAan.id === u.id)
-      .sort((a,b)=> (a.datum||'').localeCompare(b.datum||''));
-    const afhalingen = deliveries.filter(d => d.status !== 'afgerond' && d.toegewezenAanAfhaling && d.toegewezenAanAfhaling.id === u.id)
-      .sort((a,b)=> (a.afhaaldatum||a.datum||'').localeCompare(b.afhaaldatum||b.datum||''));
+    const leveringen = deliveries.filter(d => d.toegewezenAan && d.toegewezenAan.id === u.id && d.datum === perDriverDate)
+      .sort((a,b)=> sortKeyFor(a,'tijdslot') - sortKeyFor(b,'tijdslot'));
+    const afhalingen = deliveries.filter(d => d.toegewezenAanAfhaling && d.toegewezenAanAfhaling.id === u.id && (d.afhaaldatum || d.datum) === perDriverDate)
+      .sort((a,b)=> sortKeyFor(a,'afhaaltijd') - sortKeyFor(b,'afhaaltijd'));
     const totaal = leveringen.length + afhalingen.length;
+    const afgerond = leveringen.filter(d=>d.status==='afgerond').length + afhalingen.filter(d=>d.status==='afgerond').length;
     return `<details class="driver-block">
-      <summary>${escapeHtml(u.naam)} <span class="driver-count">${totaal} rit(ten)</span></summary>
-      ${totaal === 0 ? `<div class="queue-note" style="text-align:left;margin-top:8px">Nog niets toegewezen.</div>` : `
+      <summary>${escapeHtml(u.naam)} <span class="driver-count">${totaal === 0 ? 'niets gepland' : afgerond + '/' + totaal + ' afgerond'}</span></summary>
+      ${totaal === 0 ? `<div class="queue-note" style="text-align:left;margin-top:8px">Niets gepland op deze dag.</div>` : `
         ${leveringen.length ? `<div class="section-label te-leveren-label">Leveringen</div>${leveringen.map(d=>miniRow(d,'Levering')).join('')}` : ''}
         ${afhalingen.length ? `<div class="section-label op-te-halen-label">Afhalingen</div>${afhalingen.map(d=>miniRow(d,'Afhaling')).join('')}` : ''}
       `}
@@ -777,6 +784,14 @@ function bindAssignmentOverviewEvents(){
   document.querySelectorAll('#unassigned-list .mini-row, #per-driver-list .mini-row').forEach(row=>{
     row.addEventListener('click', ()=> setView('detail', row.dataset.id));
   });
+  const perDriverDateInput = document.getElementById('per-driver-date');
+  if(perDriverDateInput){
+    perDriverDateInput.addEventListener('change', (e)=>{
+      perDriverDate = e.target.value || todayISO();
+      document.getElementById('per-driver-list').innerHTML = renderPerDriver();
+      bindAssignmentOverviewEvents();
+    });
+  }
 }
 async function bindTeamEvents(){
   document.getElementById('save-settings-btn').addEventListener('click', async ()=>{
