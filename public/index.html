@@ -127,6 +127,13 @@ main{flex:1;padding:16px;}
 }
 .reorder-btn:active{background:var(--line);}
 .star-badge{color:var(--warn);font-size:14px;}
+.card-delete-btn{
+  position:absolute;top:10px;right:10px;
+  color:var(--danger);font-size:15px;
+  width:26px;height:26px;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;
+}
 .brand-logo-img{max-height:30px;max-width:170px;display:block;object-fit:contain;}
 .day-group{margin-bottom:22px;}
 .day-group h2{
@@ -144,6 +151,7 @@ main{flex:1;padding:16px;}
   padding:12px 14px;
   margin-bottom:10px;
   cursor:pointer;
+  position:relative;
 }
 .card.status-te-leveren{border-left-color:var(--accent);}
 .card.status-geplaatst{border-left-color:var(--wacht);}
@@ -203,6 +211,8 @@ button{font-family:'Inter',sans-serif;}
 .btn.secondary{background:var(--panel-alt);color:var(--text);border:1px solid var(--line);}
 .btn.ok{background:var(--ok);}
 .btn.ghost{background:none;color:var(--accent);padding:10px 4px;width:auto;}
+.btn.danger{background:none;border:1px solid var(--danger);color:var(--danger);}
+.btn.danger:active{background:rgba(210,86,79,0.12);}
 .btn.small{padding:9px 12px;font-size:13px;width:auto;}
 .btn:disabled{opacity:0.45;cursor:default;}
 
@@ -376,6 +386,20 @@ button{font-family:'Inter',sans-serif;}
   font-size:12.5px;color:var(--text-dim);
 }
 .user-chip .logout{color:var(--accent);cursor:pointer;font-weight:600;}
+.mini-row{padding:9px 0;border-bottom:1px solid var(--line);cursor:pointer;}
+.mini-row:last-child{border-bottom:none;}
+.mini-row-title{font-size:14px;}
+.mini-row-type{font-size:11px;color:var(--text-dim);margin-left:4px;}
+.mini-row-sub{font-size:12px;color:var(--text-dim);margin-top:2px;}
+.driver-block{border-bottom:1px solid var(--line);padding:10px 0;}
+.driver-block:last-child{border-bottom:none;}
+.driver-block summary{
+  font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:16px;
+  cursor:pointer;display:flex;align-items:center;justify-content:space-between;
+  list-style:none;
+}
+.driver-block summary::-webkit-details-marker{display:none;}
+.driver-count{font-family:'Inter',sans-serif;font-weight:400;font-size:12px;color:var(--text-dim);}
 .team-row{
   display:flex;justify-content:space-between;align-items:center;
   padding:11px 0;border-bottom:1px solid var(--line);
@@ -544,7 +568,8 @@ function emptyDelivery(){
     afhaaldatum: '', afhaaltijd: '',
     artikelen: '', bedrag: '',
     status: 'te-leveren',
-    toegewezenAan: null, // { id, naam } of null = voor alle chauffeurs
+    toegewezenAan: null, // { id, naam } chauffeur voor levering, of null = voor alle chauffeurs
+    toegewezenAanAfhaling: null, // { id, naam } chauffeur voor afhaling, apart van levering
     handmatigeVolgorde: null, // getal = manueel bepaalde positie in de planning
     plaatsing: {
       correctGeplaatst: false,
@@ -568,7 +593,10 @@ function emptyDelivery(){
       opmerkingen: '',
       tijdstip: '',
       bevestigd: false,
-      bevestigdOp: ''
+      bevestigdOp: '',
+      verzetAangevraagd: false, // afhaling lukte niet, verzetting naar andere dag aangevraagd
+      verzetNaarDatum: '', // voorgestelde nieuwe afhaaldatum
+      verzetReden: ''
     }
   };
 }
@@ -643,7 +671,64 @@ function renderTeam(){
     <h3>Team</h3>
     <div id="team-list">Laden...</div>
   </div>
+  <div class="section">
+    <h3>Nog toe te wijzen</h3>
+    <div id="unassigned-list">Laden...</div>
+  </div>
+  <div class="section">
+    <h3>Per chauffeur</h3>
+    <div id="per-driver-list">Laden...</div>
+  </div>
   `;
+}
+function miniRow(d, typeLabel){
+  const tijd = typeLabel === 'Levering' ? d.tijdslot : d.afhaaltijd;
+  const datum = typeLabel === 'Levering' ? d.datum : (d.afhaaldatum || d.datum);
+  return `<div class="mini-row" data-id="${d.id}">
+    <div class="mini-row-title">${escapeHtml(d.klant || 'Naamloos')} <span class="mini-row-type">${typeLabel}</span></div>
+    <div class="mini-row-sub">${fmtDate(datum)}${tijd ? ' · ' + escapeHtml(tijd) : ''} — ${escapeHtml(d.adres || '')}</div>
+  </div>`;
+}
+function renderUnassigned(){
+  const openLeveringen = deliveries.filter(d => d.status === 'te-leveren' && !d.toegewezenAan)
+    .sort((a,b)=> (a.datum||'').localeCompare(b.datum||''));
+  const openAfhalingen = deliveries.filter(d => d.status === 'geplaatst' && !d.toegewezenAanAfhaling)
+    .sort((a,b)=> (a.afhaaldatum||a.datum||'').localeCompare(b.afhaaldatum||b.datum||''));
+  if(openLeveringen.length === 0 && openAfhalingen.length === 0){
+    return `<div class="queue-note" style="text-align:left">✓ Alles is toegewezen.</div>`;
+  }
+  let html = '';
+  if(openLeveringen.length){
+    html += `<div class="section-label te-leveren-label" style="margin-top:0">Leveringen zonder chauffeur (${openLeveringen.length})</div>`;
+    html += openLeveringen.map(d => miniRow(d, 'Levering')).join('');
+  }
+  if(openAfhalingen.length){
+    html += `<div class="section-label op-te-halen-label">Afhalingen zonder chauffeur (${openAfhalingen.length})</div>`;
+    html += openAfhalingen.map(d => miniRow(d, 'Afhaling')).join('');
+  }
+  return html;
+}
+function renderPerDriver(){
+  if(teamUsers.length === 0) return 'Nog geen teamleden.';
+  return teamUsers.map(u=>{
+    const leveringen = deliveries.filter(d => d.status !== 'afgerond' && d.toegewezenAan && d.toegewezenAan.id === u.id)
+      .sort((a,b)=> (a.datum||'').localeCompare(b.datum||''));
+    const afhalingen = deliveries.filter(d => d.status !== 'afgerond' && d.toegewezenAanAfhaling && d.toegewezenAanAfhaling.id === u.id)
+      .sort((a,b)=> (a.afhaaldatum||a.datum||'').localeCompare(b.afhaaldatum||b.datum||''));
+    const totaal = leveringen.length + afhalingen.length;
+    return `<details class="driver-block">
+      <summary>${escapeHtml(u.naam)} <span class="driver-count">${totaal} rit(ten)</span></summary>
+      ${totaal === 0 ? `<div class="queue-note" style="text-align:left;margin-top:8px">Nog niets toegewezen.</div>` : `
+        ${leveringen.length ? `<div class="section-label te-leveren-label">Leveringen</div>${leveringen.map(d=>miniRow(d,'Levering')).join('')}` : ''}
+        ${afhalingen.length ? `<div class="section-label op-te-halen-label">Afhalingen</div>${afhalingen.map(d=>miniRow(d,'Afhaling')).join('')}` : ''}
+      `}
+    </details>`;
+  }).join('');
+}
+function bindAssignmentOverviewEvents(){
+  document.querySelectorAll('#unassigned-list .mini-row, #per-driver-list .mini-row').forEach(row=>{
+    row.addEventListener('click', ()=> setView('detail', row.dataset.id));
+  });
 }
 async function bindTeamEvents(){
   document.getElementById('add-user-btn').addEventListener('click', async ()=>{
@@ -659,6 +744,9 @@ async function bindTeamEvents(){
     }catch(err){ showToast(err.message); }
   });
   await refreshTeamList();
+  document.getElementById('unassigned-list').innerHTML = renderUnassigned();
+  document.getElementById('per-driver-list').innerHTML = renderPerDriver();
+  bindAssignmentOverviewEvents();
 }
 async function refreshTeamList(){
   const el = document.getElementById('team-list');
@@ -705,15 +793,20 @@ function sortKeyFor(d, timeField){
   return 100000 + (mins != null ? mins : 9999);
 }
 function cardHtml(d, extraClass){
-  const forMe = d.toegewezenAan && d.toegewezenAan.id === currentUser.id;
+  const isAfhalingFase = (d.status === 'geplaatst' || d.status === 'afgerond');
+  const relevantAssign = isAfhalingFase ? d.toegewezenAanAfhaling : d.toegewezenAan;
+  const forMe = relevantAssign && relevantAssign.id === currentUser.id;
   const assignLabel = forMe
     ? `<span class="assign-badge mine">Voor jou</span>`
-    : d.toegewezenAan
-      ? `<span class="assign-badge other">→ ${escapeHtml(d.toegewezenAan.naam)}</span>`
+    : relevantAssign
+      ? `<span class="assign-badge other">→ ${escapeHtml(relevantAssign.naam)}</span>`
       : `<span class="assign-badge open">Alle chauffeurs</span>`;
   const factuurStar = (currentUser.rol === 'admin' && d.betaling.status === 'factuur') ? `<span class="star-badge" title="Nog te factureren">★</span>` : '';
+  const verzetBadge = d.afhaling.verzetAangevraagd ? `<span class="assign-badge other" style="background:rgba(217,164,65,0.18);color:var(--warn)">🔁 Verzet aangevraagd</span>` : '';
   const tijdWeergave = d.status === 'te-leveren' ? d.tijdslot : (d.status === 'geplaatst' ? d.afhaaltijd : d.tijdslot);
+  const deleteBtn = currentUser.rol === 'admin' ? `<span class="card-delete-btn" data-delete-id="${d.id}" data-delete-naam="${escapeHtml(d.klant||'')}" title="Verwijderen">✕</span>` : '';
   return `<div class="card status-${d.status} ${forMe?'card-mine':''}" data-id="${d.id}">
+    ${deleteBtn}
     <div class="row1">
       <div>
         <div class="klant">${escapeHtml(d.klant || 'Naamloos')} ${factuurStar}</div>
@@ -724,6 +817,7 @@ function cardHtml(d, extraClass){
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px">
       <span class="badge ${d.status}" style="margin-top:0">${STATUS_LABEL[d.status]}</span>
       ${assignLabel}
+      ${verzetBadge}
     </div>
     ${extraClass ? `<div class="reorder-row" data-section="${extraClass}">
       <span class="reorder-btn" data-dir="up" data-id="${d.id}">▲</span>
@@ -744,7 +838,9 @@ function renderList(){
     </div>
   `;
   const visible = listFilter === 'mij'
-    ? deliveries.filter(d => d.toegewezenAan && d.toegewezenAan.id === currentUser.id)
+    ? deliveries.filter(d =>
+        (d.toegewezenAan && d.toegewezenAan.id === currentUser.id) ||
+        (d.toegewezenAanAfhaling && d.toegewezenAanAfhaling.id === currentUser.id))
     : deliveries;
 
   if(deliveries.length === 0){
@@ -810,6 +906,20 @@ function renderList(){
   }
   return html;
 }
+async function requestDeleteDelivery(id, klant){
+  if(!confirm('Reservatie van ' + (klant||'deze klant') + ' definitief verwijderen? Dit kan niet ongedaan gemaakt worden.')) return false;
+  try{
+    await apiFetch('/api/deliveries/' + id, { method:'DELETE' });
+    const idx = deliveries.findIndex(x => x.id === id);
+    if(idx !== -1) deliveries.splice(idx,1);
+    persistedIds.delete(id);
+    showToast('Reservatie verwijderd');
+    return true;
+  }catch(err){
+    showToast(err.message);
+    return false;
+  }
+}
 function moveCard(sectionKey, id, dir){
   const order = renderedSections[sectionKey];
   if(!order) return;
@@ -831,6 +941,13 @@ function moveCard(sectionKey, id, dir){
 function bindListEvents(){
   document.querySelectorAll('.card').forEach(c=>{
     c.addEventListener('click', ()=> setView('detail', c.dataset.id));
+  });
+  document.querySelectorAll('.card-delete-btn').forEach(btn=>{
+    btn.addEventListener('click', async (e)=>{
+      e.stopPropagation();
+      const deleted = await requestDeleteDelivery(btn.dataset.deleteId, btn.dataset.deleteNaam);
+      if(deleted) render();
+    });
   });
   document.querySelectorAll('.reorder-btn').forEach(btn=>{
     btn.addEventListener('click', (e)=>{
@@ -1001,17 +1118,41 @@ function renderDetail(d){
   </div>
 
   ${currentUser.rol === 'admin' ? `
-  <div class="statusbar-select">
-    <select id="assign-select">
-      <option value="">Niet toegewezen — alle chauffeurs</option>
-      ${assignableUsers.map(u=>`<option value="${u.id}" ${d.toegewezenAan && d.toegewezenAan.id===u.id ? 'selected':''}>${escapeHtml(u.naam)}</option>`).join('')}
-    </select>
+  <div class="section" style="padding:12px 16px">
+    <div class="field" style="margin-bottom:10px">
+      <label>Chauffeur — levering</label>
+      <select id="assign-select">
+        <option value="">Niet toegewezen — alle chauffeurs</option>
+        ${assignableUsers.map(u=>`<option value="${u.id}" ${d.toegewezenAan && d.toegewezenAan.id===u.id ? 'selected':''}>${escapeHtml(u.naam)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field" style="margin-bottom:0">
+      <label>Chauffeur — afhaling</label>
+      <select id="assign-select-afhaling">
+        <option value="">Niet toegewezen — alle chauffeurs</option>
+        ${assignableUsers.map(u=>`<option value="${u.id}" ${d.toegewezenAanAfhaling && d.toegewezenAanAfhaling.id===u.id ? 'selected':''}>${escapeHtml(u.naam)}</option>`).join('')}
+      </select>
+    </div>
   </div>
   ` : `
   <div class="queue-note" style="margin-bottom:14px;text-align:left">
-    ${d.toegewezenAan ? (d.toegewezenAan.id===currentUser.id ? '✓ Deze levering is aan jou toegewezen.' : 'Toegewezen aan ' + escapeHtml(d.toegewezenAan.naam) + '.') : 'Niet toegewezen — open voor alle chauffeurs.'}
+    Levering: ${d.toegewezenAan ? (d.toegewezenAan.id===currentUser.id ? '✓ aan jou toegewezen.' : 'toegewezen aan ' + escapeHtml(d.toegewezenAan.naam) + '.') : 'open voor alle chauffeurs.'}<br>
+    Afhaling: ${d.toegewezenAanAfhaling ? (d.toegewezenAanAfhaling.id===currentUser.id ? '✓ aan jou toegewezen.' : 'toegewezen aan ' + escapeHtml(d.toegewezenAanAfhaling.naam) + '.') : 'open voor alle chauffeurs.'}
   </div>
   `}
+
+  ${d.afhaling.verzetAangevraagd ? `
+  <div class="next-pickup-banner" style="background:rgba(217,164,65,0.12);border-color:rgba(217,164,65,0.4);color:var(--warn)">
+    🔁 Verzetting aangevraagd — voorgestelde nieuwe afhaaldatum: <b>${fmtDate(d.afhaling.verzetNaarDatum)}</b>
+    ${d.afhaling.verzetReden ? `<br>Reden: ${escapeHtml(d.afhaling.verzetReden)}` : ''}
+    ${currentUser.rol === 'admin' ? `
+      <div class="stack" style="margin-top:10px">
+        <button class="btn small ok" id="approve-verzet">Goedkeuren — datum aanpassen</button>
+        <button class="btn small secondary" id="reject-verzet">Weigeren</button>
+      </div>
+    ` : `<div style="margin-top:6px;font-size:12px">In afwachting van goedkeuring door admin.</div>`}
+  </div>
+  ` : ''}
 
   <button class="waze-btn" id="waze-btn">
     <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C7 2 3 6 3 11c0 5.2 7.4 10.4 8.4 11a1 1 0 0 0 1.2 0C13.6 21.4 21 16.2 21 11c0-5-4-9-9-9zm0 12a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"/></svg>
@@ -1078,6 +1219,7 @@ function renderDetail(d){
     ${!d.afhaling.bevestigd
       ? `<button class="btn ok" id="confirm-afhaling">Afhaling bevestigen</button>`
       : `<button class="btn secondary" id="edit-afhaling">Afhaling bewerken</button>`}
+    ${(!d.afhaling.bevestigd && !d.afhaling.verzetAangevraagd) ? `<button class="btn secondary" id="request-verzet">Afhaling vandaag niet gelukt — verzet aanvragen</button>` : ''}
   </div>` : ''}
 
   <div class="section" id="fotos-section">
@@ -1089,6 +1231,7 @@ function renderDetail(d){
   <div class="stack">
     <button class="btn secondary" id="save-checklist">Gegevens opslaan</button>
     <button class="btn secondary" id="make-pdf">Plaatsingsverslag maken (PDF)</button>
+    ${currentUser.rol === 'admin' ? `<button class="btn danger" id="delete-delivery">Reservatie verwijderen</button>` : ''}
   </div>
   `;
 }
@@ -1217,8 +1360,77 @@ function bindDetailEvents(d){
       const uid = e.target.value;
       const user = assignableUsers.find(u => String(u.id) === uid);
       d.toegewezenAan = user ? { id: user.id, naam: user.naam } : null;
-      try{ await saveDeliveries(d); showToast(user ? 'Toegewezen aan ' + user.naam : 'Niet meer toegewezen'); }
+      try{ await saveDeliveries(d); showToast(user ? 'Chauffeur levering: ' + user.naam : 'Levering niet meer toegewezen'); }
       catch(err){ d.toegewezenAan = prev; showToast(err.message); }
+    });
+  }
+  const assignSelectAfhaling = document.getElementById('assign-select-afhaling');
+  if(assignSelectAfhaling){
+    assignSelectAfhaling.addEventListener('change', async (e)=>{
+      const prev = d.toegewezenAanAfhaling;
+      const uid = e.target.value;
+      const user = assignableUsers.find(u => String(u.id) === uid);
+      d.toegewezenAanAfhaling = user ? { id: user.id, naam: user.naam } : null;
+      try{ await saveDeliveries(d); showToast(user ? 'Chauffeur afhaling: ' + user.naam : 'Afhaling niet meer toegewezen'); }
+      catch(err){ d.toegewezenAanAfhaling = prev; showToast(err.message); }
+    });
+  }
+
+  const requestVerzetBtn = document.getElementById('request-verzet');
+  if(requestVerzetBtn){
+    requestVerzetBtn.addEventListener('click', async ()=>{
+      const basis = d.afhaaldatum || todayISO();
+      const nextDay = new Date(basis + 'T00:00:00');
+      nextDay.setDate(nextDay.getDate() + 1);
+      const voorgesteld = nextDay.toISOString().slice(0,10);
+      d.afhaling.verzetAangevraagd = true;
+      d.afhaling.verzetNaarDatum = voorgesteld;
+      try{
+        await saveDeliveries(d);
+        showToast('Verzetting aangevraagd — wacht op goedkeuring');
+        setView('detail', d.id);
+      }catch(err){
+        d.afhaling.verzetAangevraagd = false;
+        d.afhaling.verzetNaarDatum = '';
+        showToast(err.message);
+      }
+    });
+  }
+  const approveVerzetBtn = document.getElementById('approve-verzet');
+  if(approveVerzetBtn){
+    approveVerzetBtn.addEventListener('click', async ()=>{
+      const prevDatum = d.afhaaldatum;
+      d.afhaaldatum = d.afhaling.verzetNaarDatum;
+      d.afhaling.verzetAangevraagd = false;
+      const voorgesteld = d.afhaling.verzetNaarDatum;
+      d.afhaling.verzetNaarDatum = '';
+      try{
+        await saveDeliveries(d);
+        showToast('Afhaaldatum aangepast naar ' + fmtDate(voorgesteld));
+        setView('detail', d.id);
+      }catch(err){
+        d.afhaaldatum = prevDatum;
+        d.afhaling.verzetAangevraagd = true;
+        d.afhaling.verzetNaarDatum = voorgesteld;
+        showToast(err.message);
+      }
+    });
+  }
+  const rejectVerzetBtn = document.getElementById('reject-verzet');
+  if(rejectVerzetBtn){
+    rejectVerzetBtn.addEventListener('click', async ()=>{
+      d.afhaling.verzetAangevraagd = false;
+      const voorgesteld = d.afhaling.verzetNaarDatum;
+      d.afhaling.verzetNaarDatum = '';
+      try{
+        await saveDeliveries(d);
+        showToast('Verzetting geweigerd');
+        setView('detail', d.id);
+      }catch(err){
+        d.afhaling.verzetAangevraagd = true;
+        d.afhaling.verzetNaarDatum = voorgesteld;
+        showToast(err.message);
+      }
     });
   }
 
@@ -1273,6 +1485,14 @@ function bindDetailEvents(d){
     await collectAndSave(d, false);
     await generateAndOfferPdf(d);
   });
+
+  const deleteBtn = document.getElementById('delete-delivery');
+  if(deleteBtn){
+    deleteBtn.addEventListener('click', async ()=>{
+      const deleted = await requestDeleteDelivery(d.id, d.klant);
+      if(deleted) setView('list');
+    });
+  }
 
   const confirmPlaatsingBtn = document.getElementById('confirm-plaatsing');
   if(confirmPlaatsingBtn){
@@ -1522,27 +1742,43 @@ function renderDossiers(){
     return `<div class="empty"><div class="big">Nog geen dossiers</div>Zodra je een checklist invult of een verslag maakt, verschijnt het dossier hier.</div>`;
   }
   const sorted = [...relevant].sort((a,b)=> (b.datum||'').localeCompare(a.datum||''));
-  return sorted.map(d=>`
+  return sorted.map(d=>{
+    const factuurStar = (currentUser.rol === 'admin' && d.betaling.status === 'factuur') ? `<span class="star-badge" title="Nog te factureren">★</span>` : '';
+    const verzetBadge = d.afhaling.verzetAangevraagd ? `<span class="assign-badge other" style="background:rgba(217,164,65,0.18);color:var(--warn)">🔁 Verzet aangevraagd</span>` : '';
+    const deleteBtn = currentUser.rol === 'admin' ? `<span class="card-delete-btn" data-delete-id="${d.id}" data-delete-naam="${escapeHtml(d.klant||'')}" title="Verwijderen">✕</span>` : '';
+    return `
     <div class="card status-${d.status}" data-id="${d.id}" data-open="1">
+      ${deleteBtn}
       <div class="row1">
         <div>
-          <div class="klant">${escapeHtml(d.klant)}</div>
+          <div class="klant">${escapeHtml(d.klant)} ${factuurStar}</div>
           <div class="adres">${escapeHtml(d.adres)}</div>
         </div>
         <div class="tijd">${fmtDate(d.datum)}</div>
       </div>
-      <span class="badge ${d.status}">${STATUS_LABEL[d.status]}</span>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px">
+        <span class="badge ${d.status}" style="margin-top:0">${STATUS_LABEL[d.status]}</span>
+        ${verzetBadge}
+      </div>
       <div class="stack" style="margin-top:10px">
         <button class="btn small secondary" data-pdf="${d.id}">Verslag downloaden / delen</button>
       </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
 function bindDossierEvents(){
   document.querySelectorAll('[data-open]').forEach(c=>{
     c.addEventListener('click', (e)=>{
-      if(e.target.closest('[data-pdf]')) return;
+      if(e.target.closest('[data-pdf]') || e.target.closest('.card-delete-btn')) return;
       setView('detail', c.dataset.id);
+    });
+  });
+  document.querySelectorAll('.card-delete-btn').forEach(btn=>{
+    btn.addEventListener('click', async (e)=>{
+      e.stopPropagation();
+      const deleted = await requestDeleteDelivery(btn.dataset.deleteId, btn.dataset.deleteNaam);
+      if(deleted) render();
     });
   });
   document.querySelectorAll('[data-pdf]').forEach(btn=>{
