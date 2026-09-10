@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>Belair-Fun — Leveringen</title>
+<title>Belair-Fun — Planning</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -128,9 +128,8 @@ main{flex:1;padding:16px;}
 .reorder-btn:active{background:var(--line);}
 .star-badge{color:var(--warn);font-size:14px;}
 .card-delete-btn{
-  position:absolute;top:10px;right:10px;
   color:var(--danger);font-size:15px;
-  width:26px;height:26px;
+  width:26px;height:26px;flex-shrink:0;
   display:flex;align-items:center;justify-content:center;
   cursor:pointer;
 }
@@ -427,7 +426,7 @@ button{font-family:'Inter',sans-serif;}
       <img src="/logo.png" alt="Belair-Fun" class="brand-logo-img" onerror="this.style.display='none'; this.nextElementSibling.style.display='';">
       <div class="brand" style="font-size:28px;display:none">Belair<span class="dot">·</span>Fun</div>
     </div>
-    <div id="authSub" class="sub" style="margin-bottom:22px">Leveringen &amp; planning</div>
+    <div id="authSub" class="sub" style="margin-bottom:22px">Planning &amp; overzicht</div>
     <div id="authForm"></div>
   </div>
 </div>
@@ -437,7 +436,7 @@ button{font-family:'Inter',sans-serif;}
     <div>
       <img src="/logo.png" alt="Belair-Fun" class="brand-logo-img" onerror="this.style.display='none'; this.nextElementSibling.style.display='';">
       <div class="brand" style="display:none">Belair<span class="dot">·</span>Fun</div>
-      <div class="sub" id="topbarSub">Leveringen</div>
+      <div class="sub" id="topbarSub">Planning</div>
     </div>
     <div id="topbarAction"></div>
   </div>
@@ -445,7 +444,7 @@ button{font-family:'Inter',sans-serif;}
   <div class="tabbar">
     <button data-tab="list" class="tab-btn">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
-      Leveringen
+      Planning
     </button>
     <button data-tab="new" class="tab-btn">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
@@ -453,7 +452,7 @@ button{font-family:'Inter',sans-serif;}
     </button>
     <button data-tab="dossiers" class="tab-btn">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4zM4 9h16"/></svg>
-      Dossiers
+      Overzicht
     </button>
     <button data-tab="team" class="tab-btn" id="teamTabBtn" style="display:none">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
@@ -625,7 +624,7 @@ function render(){
   if(logoutBtn) logoutBtn.addEventListener('click', ()=> doLogout());
 
   if(view === 'list'){
-    sub.textContent = 'Leveringen';
+    sub.textContent = 'Planning';
     main.innerHTML = renderList();
     bindListEvents();
   } else if(view === 'new'){
@@ -633,7 +632,7 @@ function render(){
     main.innerHTML = renderNewForm();
     bindNewFormEvents();
   } else if(view === 'dossiers'){
-    sub.textContent = 'Dossiers';
+    sub.textContent = 'Overzicht';
     main.innerHTML = renderDossiers();
     bindDossierEvents();
   } else if(view === 'team'){
@@ -806,13 +805,15 @@ function cardHtml(d, extraClass){
   const tijdWeergave = d.status === 'te-leveren' ? d.tijdslot : (d.status === 'geplaatst' ? d.afhaaltijd : d.tijdslot);
   const deleteBtn = currentUser.rol === 'admin' ? `<span class="card-delete-btn" data-delete-id="${d.id}" data-delete-naam="${escapeHtml(d.klant||'')}" title="Verwijderen">✕</span>` : '';
   return `<div class="card status-${d.status} ${forMe?'card-mine':''}" data-id="${d.id}">
-    ${deleteBtn}
     <div class="row1">
       <div>
         <div class="klant">${escapeHtml(d.klant || 'Naamloos')} ${factuurStar}</div>
         <div class="adres">${escapeHtml(d.adres || 'Geen adres')}</div>
       </div>
-      <div class="tijd">${escapeHtml(tijdWeergave || '')}</div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <div class="tijd">${escapeHtml(tijdWeergave || '')}</div>
+        ${deleteBtn}
+      </div>
     </div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px">
       <span class="badge ${d.status}" style="margin-top:0">${STATUS_LABEL[d.status]}</span>
@@ -1748,13 +1749,15 @@ function renderDossiers(){
     const deleteBtn = currentUser.rol === 'admin' ? `<span class="card-delete-btn" data-delete-id="${d.id}" data-delete-naam="${escapeHtml(d.klant||'')}" title="Verwijderen">✕</span>` : '';
     return `
     <div class="card status-${d.status}" data-id="${d.id}" data-open="1">
-      ${deleteBtn}
       <div class="row1">
         <div>
           <div class="klant">${escapeHtml(d.klant)} ${factuurStar}</div>
           <div class="adres">${escapeHtml(d.adres)}</div>
         </div>
-        <div class="tijd">${fmtDate(d.datum)}</div>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <div class="tijd">${fmtDate(d.datum)}</div>
+          ${deleteBtn}
+        </div>
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px">
         <span class="badge ${d.status}" style="margin-top:0">${STATUS_LABEL[d.status]}</span>
