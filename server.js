@@ -44,6 +44,12 @@ async function initDb() {
       data_url TEXT,
       created_at TIMESTAMPTZ DEFAULT now()
     );
+    CREATE TABLE IF NOT EXISTS locations(
+      user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      lat DOUBLE PRECISION NOT NULL,
+      lng DOUBLE PRECISION NOT NULL,
+      updated_at TIMESTAMPTZ DEFAULT now()
+    );
   `);
 }
 
@@ -105,6 +111,7 @@ function normalizeOndergrond(v) {
   const s = String(v).toLowerCase();
   if (s.includes('hard')) return 'Harde ondergrond';
   if (s.includes('gras') || s.includes('grass')) return 'Op gras';
+  if (s.includes('no selection') || s.includes('n/a') || s.includes('none')) return '';
   return v;
 }
 function getField(row, ...names) {
@@ -242,15 +249,15 @@ app.post('/api/import', auth, adminOnly, async (req, res) => {
     const adres1 = getField(row, 'Delivery Address 1', 'Adres', 'Address');
     if (!klant && !adres1) continue; // lege rij, geen fout
 
-    if (!klant || !adres1) {
-      skipped.push({ rij: i + 2, reden: 'Klantnaam of adres ontbreekt' });
+    if (!klant) {
+      skipped.push({ rij: i + 2, reden: 'Klantnaam ontbreekt' });
       continue;
     }
 
     const stad = getField(row, 'Delivery Town', 'Gemeente', 'Town');
     const postcode = getField(row, 'Delivery Postcode', 'Postcode');
     const adres = [adres1, [postcode, stad].filter(Boolean).join(' ')].filter(Boolean).join(', ');
-    const boekingsnummer = getField(row, 'Booking Number', 'Boekingsnummer', 'Booking Nr', 'Order Number', 'Ordernummer', 'Reference', 'Referentie', 'Boeking');
+    const boekingsnummer = getField(row, 'Booking ID', 'Booking Number', 'Boekingsnummer', 'Booking Nr', 'Order Number', 'Ordernummer', 'Reference', 'Referentie', 'Boeking');
 
     const d = emptyDeliveryServer();
     d.klant = klant;
@@ -316,6 +323,26 @@ app.post('/api/deliveries/:id/photos', auth, async (req, res) => {
 app.delete('/api/deliveries/:deliveryId/photos/:photoId', auth, async (req, res) => {
   await pool.query('DELETE FROM photos WHERE id=$1 AND delivery_id=$2', [req.params.photoId, req.params.deliveryId]);
   res.json({ ok: true });
+});
+
+// ---------- Locatie (enkel tijdens gebruik van de app, geen achtergrond-tracking) ----------
+app.post('/api/location', auth, async (req, res) => {
+  const { lat, lng } = req.body || {};
+  if (typeof lat !== 'number' || typeof lng !== 'number') return res.status(400).json({ error: 'Ongeldige locatie' });
+  await pool.query(
+    `INSERT INTO locations(user_id, lat, lng, updated_at) VALUES ($1,$2,$3,now())
+     ON CONFLICT (user_id) DO UPDATE SET lat=$2, lng=$3, updated_at=now()`,
+    [req.user.id, lat, lng]
+  );
+  res.json({ ok: true });
+});
+app.get('/api/locations', auth, adminOnly, async (req, res) => {
+  const r = await pool.query(
+    `SELECT u.id, u.naam, l.lat, l.lng, l.updated_at
+     FROM locations l JOIN users u ON u.id = l.user_id
+     ORDER BY l.updated_at DESC`
+  );
+  res.json(r.rows);
 });
 
 app.get('*', (req, res) => {
