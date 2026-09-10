@@ -656,6 +656,17 @@ let teamUsers = [];
 function renderTeam(){
   return `
   <div class="section">
+    <h3>Instellingen</h3>
+    <div class="field" style="margin-bottom:0">
+      <label>Google review-link</label>
+      <input type="text" id="s-google-review" value="${escapeHtml(appSettings.googleReviewUrl||'')}" placeholder="https://g.page/r/.../review">
+    </div>
+    <div style="font-size:12px;color:var(--text-dim);margin:8px 0 10px">
+      Vind je op je Google Bedrijfsprofiel via "Meer reviews krijgen" → link kopiëren.
+    </div>
+    <button class="btn small secondary" id="save-settings-btn">Opslaan</button>
+  </div>
+  <div class="section">
     <h3>Nieuw teamlid</h3>
     <div class="field"><label>Naam</label><input type="text" id="t-naam" placeholder="Bv. Kevin"></div>
     <div class="field"><label>Gebruikersnaam (voor inloggen)</label><input type="text" id="t-username" placeholder="Bv. kevin"></div>
@@ -741,6 +752,14 @@ function bindAssignmentOverviewEvents(){
   });
 }
 async function bindTeamEvents(){
+  document.getElementById('save-settings-btn').addEventListener('click', async ()=>{
+    const url = document.getElementById('s-google-review').value.trim();
+    try{
+      await apiFetch('/api/settings', { method:'PUT', body: JSON.stringify({ googleReviewUrl: url }) });
+      appSettings.googleReviewUrl = url;
+      showToast('Instellingen opgeslagen');
+    }catch(err){ showToast(err.message); }
+  });
   document.getElementById('add-user-btn').addEventListener('click', async ()=>{
     const naam = document.getElementById('t-naam').value.trim();
     const username = document.getElementById('t-username').value.trim();
@@ -1244,6 +1263,14 @@ function renderDetail(d){
   </div>` : ''}
 
   <div class="section">
+    <h3>Leverdatum &amp; levertijd</h3>
+    <div class="two-col">
+      <div class="field"><label>Leverdatum</label><input type="date" id="edit-datum" value="${d.datum||''}" ${d.plaatsing.bevestigd?'disabled':''}></div>
+      <div class="field"><label>Tijdslot</label><input type="text" id="edit-tijdslot" value="${escapeHtml(d.tijdslot||'')}" placeholder="Bv. 09:00 - 10:00" ${d.plaatsing.bevestigd?'disabled':''}></div>
+    </div>
+  </div>
+
+  <div class="section">
     <h3>Afhaaltijd bevestigen</h3>
     <div class="two-col">
       <div class="field"><label>Afhaaldatum</label><input type="date" id="afhaaldatum" value="${d.afhaaldatum||''}" ${d.plaatsing.bevestigd?'disabled':''}></div>
@@ -1296,6 +1323,17 @@ function renderDetail(d){
       : `<button class="btn secondary" id="edit-afhaling">Afhaling bewerken</button>`}
     ${(!d.afhaling.bevestigd && !d.afhaling.verzetAangevraagd) ? `<button class="btn secondary" id="request-verzet">Afhaling vandaag niet gelukt — verzet aanvragen</button>` : ''}
   </div>` : ''}
+
+  ${(d.afhaling.bevestigd && appSettings.googleReviewUrl) ? `
+  <div class="section">
+    <h3>Google review vragen</h3>
+    <div class="stack">
+      ${d.telefoon ? `<button class="btn secondary" id="review-whatsapp">Verstuur via WhatsApp</button>` : ''}
+      ${d.email ? `<button class="btn secondary" id="review-email">Verstuur via e-mail</button>` : ''}
+      ${(!d.telefoon && !d.email) ? `<div class="queue-note">Geen telefoon of e-mail bekend voor deze klant.</div>` : ''}
+    </div>
+  </div>
+  ` : ''}
 
   <div class="section" id="fotos-section">
     <h3>Foto's</h3>
@@ -1451,6 +1489,36 @@ function bindDetailEvents(d){
       d.toegewezenAanAfhaling = user ? { id: user.id, naam: user.naam } : null;
       try{ await saveDeliveries(d); showToast(user ? 'Chauffeur afhaling: ' + user.naam : 'Afhaling niet meer toegewezen'); }
       catch(err){ d.toegewezenAanAfhaling = prev; showToast(err.message); }
+    });
+  }
+
+  const reviewWhatsappBtn = document.getElementById('review-whatsapp');
+  if(reviewWhatsappBtn){
+    reviewWhatsappBtn.addEventListener('click', ()=>{
+      const digits = String(d.telefoon).replace(/[^\d+]/g,'');
+      const intl = digits.startsWith('+') ? digits.slice(1) : digits.startsWith('0') ? '32' + digits.slice(1) : digits;
+      const tekst = `Bedankt om voor Belair-Fun te kiezen, ${d.klant}! Zou je ons een Google review willen geven? ${appSettings.googleReviewUrl}`;
+      window.open('https://wa.me/' + intl + '?text=' + encodeURIComponent(tekst), '_blank');
+    });
+  }
+  const reviewEmailBtn = document.getElementById('review-email');
+  if(reviewEmailBtn){
+    reviewEmailBtn.addEventListener('click', async ()=>{
+      reviewEmailBtn.disabled = true;
+      const origLabel = reviewEmailBtn.textContent;
+      reviewEmailBtn.textContent = 'Bezig met versturen...';
+      try{
+        await apiFetch('/api/deliveries/' + d.id + '/send-review-email', { method:'POST' });
+        showToast('Review-mail automatisch verstuurd naar ' + d.email);
+      }catch(err){
+        // Automatisch versturen niet ingesteld of mislukt: val terug op de mail-app openen
+        const subject = 'Bedankt van Belair-Fun!';
+        const body = `Hallo ${d.klant},\n\nBedankt om voor Belair-Fun te kiezen! Zou je ons een Google review willen geven?\n${appSettings.googleReviewUrl}\n\nMet vriendelijke groeten,\nBelair-Fun`;
+        window.location.href = 'mailto:' + encodeURIComponent(d.email) + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+        showToast('Automatisch verzenden nog niet ingesteld — mail-app geopend');
+      }
+      reviewEmailBtn.disabled = false;
+      reviewEmailBtn.textContent = origLabel;
     });
   }
 
@@ -1646,6 +1714,11 @@ function checkedVal(id){
   return el ? el.dataset.checked === '1' : false;
 }
 function collectFromForm(d){
+  const datumEl = document.getElementById('edit-datum');
+  const tijdslotEl = document.getElementById('edit-tijdslot');
+  if(datumEl) d.datum = datumEl.value || d.datum;
+  if(tijdslotEl) d.tijdslot = tijdslotEl.value;
+
   d.afhaaldatum = document.getElementById('afhaaldatum').value;
   d.afhaaltijd = document.getElementById('afhaaltijd').value;
 
@@ -1883,6 +1956,7 @@ function showAuthScreen(){
   renderAuthForm();
 }
 let assignableUsers = [];
+let appSettings = {};
 async function showApp(){
   document.getElementById('authScreen').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
@@ -1892,6 +1966,7 @@ async function showApp(){
   } else {
     startLocationSharing();
   }
+  try{ appSettings = await apiFetch('/api/settings'); }catch(e){ appSettings = {}; }
   await loadDeliveries();
   setView('list');
 }
