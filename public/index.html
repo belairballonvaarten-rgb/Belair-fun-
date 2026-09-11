@@ -1171,10 +1171,17 @@ function assignmentMatchesUser(assignment, userId){
 function splitArtikelen(artikelen){
   return String(artikelen||'').split(/[\n,/+]/).map(s=>s.trim()).filter(Boolean);
 }
+function aggregateArtikelen(artikelen){
+  const items = splitArtikelen(artikelen);
+  const counts = new Map();
+  items.forEach(i => counts.set(i, (counts.get(i)||0)+1));
+  return Array.from(counts.entries()).map(([naam,aantal])=>({naam,aantal}));
+}
 function primaryProductLabel(d){
-  const items = splitArtikelen(d.artikelen);
-  if(items.length === 0) return d.klant || 'Naamloos';
-  return items[0] + (items.length > 1 ? ` (+${items.length - 1} meer)` : '');
+  const agg = aggregateArtikelen(d.artikelen);
+  if(agg.length === 0) return d.klant || 'Naamloos';
+  const shown = agg.slice(0,3).map(a => a.aantal>1 ? `${a.naam} x${a.aantal}` : a.naam).join(', ');
+  return agg.length > 3 ? `${shown} (+${agg.length - 3} meer)` : shown;
 }
 function cardHtml(d, extraClass){
   const isAfhalingFase = (d.status === 'geplaatst' || d.status === 'afgerond');
