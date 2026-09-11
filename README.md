@@ -173,6 +173,33 @@ Ga naar je Web Service → **Environment** en voeg toe:
 Sla op, wacht op de herdeploy. De "Verstuur via e-mail"-knop verstuurt vanaf
 nu automatisch, zonder dat er een mail-app moet opengaan.
 
+## Push-meldingen naar teams/chauffeurs
+
+Op het tabblad **Team** kan je (als admin) **voertuigteams** aanmaken —
+bijvoorbeeld "Voertuig 1" met een chauffeur en één of twee begeleiders erin —
+en handmatig een push-melding met eigen tekst naar zo'n team of naar één
+teamlid sturen. Er gebeurt niets automatisch: jij bepaalt telkens zelf
+wanneer en wat er verstuurd wordt.
+
+Om dit te activeren, zijn er twee sleutels nodig die je zelf genereert (dit
+is eenmalig en gratis, geen account bij een externe partij nodig). Gebruik
+onderstaand sleutelpaar, of genereer je eigen paar als je dat liever hebt
+(met de `web-push`-tool: `npx web-push generate-vapid-keys`):
+
+```
+VAPID_PUBLIC_KEY=BIepDH8nM3dtXyNmQr_KvDmZAF1PhqoaKPOk8rjQQ441CDlz9V2lD_SRQAZT4AdMP4ytzDX5HX8vTy6Z81D6y7Y
+VAPID_PRIVATE_KEY=BwC57C2barp2Q38lAuXlwBvwfXE4xBr2IHB_uGgX2lc
+VAPID_SUBJECT=mailto:jouw-email@voorbeeld.be
+```
+
+Vul deze drie in bij Render → Environment (vervang het e-mailadres in
+`VAPID_SUBJECT` door je eigen adres). Sla op, wacht op de herdeploy.
+
+**Belangrijk voor gebruikers (chauffeurs/begeleiders):** de browser vraagt
+bij het inloggen eenmalig toestemming voor meldingen — die moet aanvaard
+worden. Op iPad/iPhone werkt dit enkel als de app via "Zet op beginscherm"
+is toegevoegd, en enkel op iOS/iPadOS 16.4 of nieuwer.
+
 ## Logo wijzigen
 
 Het logo staat in `public/logo.png`. Wil je het later vervangen: upload gewoon

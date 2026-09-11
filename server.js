@@ -5,6 +5,15 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const path = require('path');
 const XLSX = require('xlsx');
+const webpush = require('web-push');
+
+if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+  webpush.setVapidDetails(
+    process.env.VAPID_SUBJECT || 'mailto:info@example.com',
+    process.env.VAPID_PUBLIC_KEY,
+    process.env.VAPID_PRIVATE_KEY
+  );
+}
 
 const app = express();
 app.use(express.json({ limit: '20mb' })); // foto's en Excel-import zijn base64, dus ruim genoeg limiet
@@ -53,6 +62,24 @@ async function initDb() {
     CREATE TABLE IF NOT EXISTS app_settings(
       key TEXT PRIMARY KEY,
       value TEXT
+    );
+    CREATE TABLE IF NOT EXISTS push_subscriptions(
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      endpoint TEXT UNIQUE NOT NULL,
+      p256dh TEXT NOT NULL,
+      auth TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+    CREATE TABLE IF NOT EXISTS teams(
+      id SERIAL PRIMARY KEY,
+      naam TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+    CREATE TABLE IF NOT EXISTS team_members(
+      team_id INTEGER REFERENCES teams(id) ON DELETE CASCADE,
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      PRIMARY KEY (team_id, user_id)
     );
   `);
 }
@@ -480,6 +507,107 @@ app.post('/api/deliveries/:id/send-review-email', auth, async (req, res) => {
   } catch (e) {
     res.status(e.notConfigured ? 501 : 502).json({ error: e.message, notConfigured: !!e.notConfigured });
   }
+});
+
+// ---------- Push-meldingen ----------
+app.get('/api/push/public-key', auth, (req, res) => {
+  res.json({ key: process.env.VAPID_PUBLIC_KEY || null });
+});
+app.post('/api/push/subscribe', auth, async (req, res) => {
+  const sub = req.body || {};
+  if (!sub.endpoint || !sub.keys || !sub.keys.p256dh || !sub.keys.auth) {
+    return res.status(400).json({ error: 'Ongeldig abonnement' });
+  }
+  await pool.query(
+    `INSERT INTO push_subscriptions(user_id, endpoint, p256dh, auth) VALUES ($1,$2,$3,$4)
+     ON CONFLICT (endpoint) DO UPDATE SET user_id=$1, p256dh=$3, auth=$4`,
+    [req.user.id, sub.endpoint, sub.keys.p256dh, sub.keys.auth]
+  );
+  res.json({ ok: true });
+});
+app.post('/api/push/unsubscribe', auth, async (req, res) => {
+  const { endpoint } = req.body || {};
+  if (endpoint) await pool.query('DELETE FROM push_subscriptions WHERE endpoint=$1', [endpoint]);
+  res.json({ ok: true });
+});
+
+// ---------- Voertuigteams ----------
+app.get('/api/teams', auth, adminOnly, async (req, res) => {
+  const teamsRes = await pool.query('SELECT id, naam FROM teams ORDER BY naam');
+  const membersRes = await pool.query(
+    `SELECT tm.team_id, u.id, u.naam FROM team_members tm JOIN users u ON u.id = tm.user_id`
+  );
+  const byTeam = {};
+  membersRes.rows.forEach(r => {
+    if (!byTeam[r.team_id]) byTeam[r.team_id] = [];
+    byTeam[r.team_id].push({ id: r.id, naam: r.naam });
+  });
+  res.json(teamsRes.rows.map(t => ({ id: t.id, naam: t.naam, leden: byTeam[t.id] || [] })));
+});
+app.post('/api/teams', auth, adminOnly, async (req, res) => {
+  const { naam, memberIds } = req.body || {};
+  if (!naam) return res.status(400).json({ error: 'Naam is verplicht' });
+  const ins = await pool.query('INSERT INTO teams(naam) VALUES ($1) RETURNING id', [naam]);
+  const teamId = ins.rows[0].id;
+  for (const uid of (memberIds || [])) {
+    await pool.query('INSERT INTO team_members(team_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [teamId, uid]);
+  }
+  res.json({ ok: true, id: teamId });
+});
+app.put('/api/teams/:id', auth, adminOnly, async (req, res) => {
+  const { naam, memberIds } = req.body || {};
+  if (naam) await pool.query('UPDATE teams SET naam=$1 WHERE id=$2', [naam, req.params.id]);
+  if (Array.isArray(memberIds)) {
+    await pool.query('DELETE FROM team_members WHERE team_id=$1', [req.params.id]);
+    for (const uid of memberIds) {
+      await pool.query('INSERT INTO team_members(team_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [req.params.id, uid]);
+    }
+  }
+  res.json({ ok: true });
+});
+app.delete('/api/teams/:id', auth, adminOnly, async (req, res) => {
+  await pool.query('DELETE FROM teams WHERE id=$1', [req.params.id]);
+  res.json({ ok: true });
+});
+
+// ---------- Handmatig een melding versturen ----------
+app.post('/api/notify', auth, adminOnly, async (req, res) => {
+  const { teamId, userId, title, message } = req.body || {};
+  if (!title || !message) return res.status(400).json({ error: 'Titel en bericht zijn verplicht' });
+  if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
+    return res.status(501).json({ error: 'Push-meldingen zijn niet geconfigureerd (VAPID-sleutels ontbreken)' });
+  }
+
+  let userIds = [];
+  if (teamId) {
+    const r = await pool.query('SELECT user_id FROM team_members WHERE team_id=$1', [teamId]);
+    userIds = r.rows.map(row => row.user_id);
+  } else if (userId) {
+    userIds = [userId];
+  } else {
+    return res.status(400).json({ error: 'Kies een team of een teamlid' });
+  }
+  if (userIds.length === 0) return res.status(400).json({ error: 'Dit team heeft geen leden' });
+
+  const subsRes = await pool.query(
+    `SELECT id, endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ANY($1::int[])`,
+    [userIds]
+  );
+
+  let sent = 0, failed = 0;
+  for (const sub of subsRes.rows) {
+    const pushSub = { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } };
+    try {
+      await webpush.sendNotification(pushSub, JSON.stringify({ title, message }));
+      sent++;
+    } catch (e) {
+      failed++;
+      if (e.statusCode === 404 || e.statusCode === 410) {
+        await pool.query('DELETE FROM push_subscriptions WHERE id=$1', [sub.id]);
+      }
+    }
+  }
+  res.json({ sent, failed, ontvangers: userIds.length });
 });
 
 app.get('*', (req, res) => {
