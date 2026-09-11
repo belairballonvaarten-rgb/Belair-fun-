@@ -532,6 +532,14 @@ app.post('/api/push/unsubscribe', auth, async (req, res) => {
 });
 
 // ---------- Voertuigteams ----------
+app.get('/api/my-teams', auth, async (req, res) => {
+  const r = await pool.query(
+    `SELECT t.id, t.naam FROM teams t JOIN team_members tm ON tm.team_id = t.id WHERE tm.user_id = $1`,
+    [req.user.id]
+  );
+  res.json(r.rows);
+});
+
 app.get('/api/teams', auth, adminOnly, async (req, res) => {
   const teamsRes = await pool.query('SELECT id, naam FROM teams ORDER BY naam');
   const membersRes = await pool.query(
