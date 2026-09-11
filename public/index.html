@@ -759,6 +759,10 @@ function render(){
 let teamUsers = [];
 function renderTeam(){
   return `
+  <div class="back" id="back-to-planning">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg>
+    Terug naar Planning
+  </div>
   <div class="section">
     <h3>Per voertuig</h3>
     <div class="field" style="margin-bottom:14px">
@@ -798,6 +802,10 @@ function renderTeam(){
 }
 function renderInstellingen(){
   return `
+  <div class="back" id="back-to-planning-instellingen">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg>
+    Terug naar Planning
+  </div>
   <div class="section">
     <h3>Team</h3>
     <div id="team-list">Laden...</div>
@@ -959,6 +967,11 @@ async function generateLaadlijstPdf(teamId, dateStr){
   const pageH = doc.internal.pageSize.getHeight();
   const pageW = doc.internal.pageSize.getWidth();
   function ensureSpace(h){ if(y + h > pageH - 16){ doc.addPage(); y = 18; } }
+  function drawCheckbox(x, yBaseline, size){
+    size = size || 3.8;
+    doc.setDrawColor(120,120,120); doc.setLineWidth(0.35);
+    doc.rect(x, yBaseline - size + 0.9, size, size);
+  }
 
   doc.setFont('helvetica','bold'); doc.setFontSize(18); doc.setTextColor(30,30,30);
   doc.text('Belair-Fun', marginL, y); y += 7;
@@ -980,8 +993,9 @@ async function generateLaadlijstPdf(teamId, dateStr){
     ensureSpace(24);
 
     doc.setFont('helvetica','bold'); doc.setFontSize(12.5); doc.setTextColor(232,99,30);
-    const titelWrapped = doc.splitTextToSize(`${i+1}. ${primaryProductLabel(d)}`, pageW - marginL*2);
+    const titelWrapped = doc.splitTextToSize(`${i+1}. ${primaryProductLabel(d)}`, pageW - marginL*2 - 8);
     ensureSpace(titelWrapped.length*6);
+    drawCheckbox(pageW - marginL - 5.5, y, 5.5);
     doc.text(titelWrapped, marginL, y); y += titelWrapped.length*6;
     doc.setDrawColor(232,99,30); doc.setLineWidth(0.3); doc.line(marginL, y-3.5, pageW-marginL, y-3.5); y += 1.5;
     doc.setTextColor(30,30,30);
@@ -1001,10 +1015,11 @@ async function generateLaadlijstPdf(teamId, dateStr){
     agg.forEach(item => {
       const materiaalLabel = materiaalLabelVoorItem(item.naam, ondergrondNorm);
       const label = (item.aantal > 1 ? `${item.aantal}x ` : '') + item.naam + (materiaalLabel ? '  —  ' + materiaalLabel : '');
-      const wrapped = doc.splitTextToSize('• ' + label, pageW - marginL*2 - 4);
+      const wrapped = doc.splitTextToSize(label, pageW - marginL*2 - 10);
       ensureSpace(wrapped.length*5.2);
       doc.setFont('helvetica','normal'); doc.setFontSize(10);
-      doc.text(wrapped, marginL+2, y);
+      drawCheckbox(marginL + 2, y, 3.6);
+      doc.text(wrapped, marginL + 8, y);
       y += wrapped.length*5.2;
 
       // Tel mee voor het totaaloverzicht (per stuk van dit item, x aantal keer besteld)
@@ -1037,8 +1052,9 @@ async function generateLaadlijstPdf(teamId, dateStr){
 
   function totaalLijn(label, aantal){
     if(!aantal) return;
-    ensureSpace(6);
-    doc.text(`• ${label}: ${aantal}`, marginL, y); y += 6;
+    ensureSpace(7);
+    drawCheckbox(marginL, y, 3.8);
+    doc.text(`${label}: ${aantal}`, marginL + 7, y); y += 7;
   }
   Object.keys(motorTotalen).forEach(type => totaalLijn(type, motorTotalen[type]));
   totaalLijn('Verlengkabels standaard', kabelStandaardTotaal);
@@ -1093,6 +1109,7 @@ function bindAssignmentOverviewEvents(){
   });
 }
 async function bindTeamEvents(){
+  document.getElementById('back-to-planning').addEventListener('click', ()=> setView('list'));
   document.getElementById('notify-send-btn').addEventListener('click', async ()=>{
     const target = document.getElementById('notify-target').value;
     const title = document.getElementById('notify-title').value.trim();
@@ -1119,6 +1136,7 @@ async function bindTeamEvents(){
   await loadDriverLocations();
 }
 async function bindInstellingenEvents(){
+  document.getElementById('back-to-planning-instellingen').addEventListener('click', ()=> setView('list'));
   document.getElementById('save-settings-btn').addEventListener('click', async ()=>{
     const url = document.getElementById('s-google-review').value.trim();
     try{
