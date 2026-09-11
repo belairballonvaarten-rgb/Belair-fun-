@@ -81,6 +81,19 @@ async function initDb() {
       user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
       PRIMARY KEY (team_id, user_id)
     );
+    CREATE TABLE IF NOT EXISTS producten(
+      naam TEXT PRIMARY KEY,
+      opmerking TEXT,
+      motor_type TEXT,
+      aantal_motors INTEGER,
+      verlengkabel_standaard INTEGER,
+      verlengkabel_dubbel INTEGER,
+      pinnen INTEGER,
+      zandzakken INTEGER,
+      valmatten INTEGER,
+      overige TEXT,
+      updated_at TIMESTAMPTZ DEFAULT now()
+    );
   `);
 }
 
@@ -584,6 +597,70 @@ app.put('/api/teams/:id', auth, adminOnly, async (req, res) => {
 app.delete('/api/teams/:id', auth, adminOnly, async (req, res) => {
   await pool.query('DELETE FROM teams WHERE id=$1', [req.params.id]);
   res.json({ ok: true });
+});
+
+// ---------- Materiaal-databank (standaardinfo per product, bv. voor laadlijsten) ----------
+app.get('/api/producten', auth, async (req, res) => {
+  const r = await pool.query(`
+    SELECT naam, opmerking, motor_type AS "motorType", aantal_motors AS "aantalMotors",
+      verlengkabel_standaard AS "verlengkabelStandaard", verlengkabel_dubbel AS "verlengkabelDubbel",
+      pinnen, zandzakken, valmatten, overige
+    FROM producten ORDER BY naam
+  `);
+  res.json(r.rows);
+});
+app.post('/api/producten', auth, adminOnly, async (req, res) => {
+  const { naam, opmerking, motorType, aantalMotors, verlengkabelStandaard, verlengkabelDubbel, pinnen, zandzakken, valmatten, overige } = req.body || {};
+  if (!naam) return res.status(400).json({ error: 'Naam is verplicht' });
+  const n = v => (v === '' || v === undefined || v === null) ? null : parseInt(v, 10);
+  await pool.query(
+    `INSERT INTO producten(naam, opmerking, motor_type, aantal_motors, verlengkabel_standaard, verlengkabel_dubbel, pinnen, zandzakken, valmatten, overige, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now())
+     ON CONFLICT (naam) DO UPDATE SET opmerking=$2, motor_type=$3, aantal_motors=$4, verlengkabel_standaard=$5, verlengkabel_dubbel=$6, pinnen=$7, zandzakken=$8, valmatten=$9, overige=$10, updated_at=now()`,
+    [naam.trim(), opmerking || '', motorType || null, n(aantalMotors), n(verlengkabelStandaard), n(verlengkabelDubbel), n(pinnen), n(zandzakken), n(valmatten), overige || '']
+  );
+  res.json({ ok: true });
+});
+app.delete('/api/producten', auth, adminOnly, async (req, res) => {
+  const { naam } = req.body || {};
+  if (naam) await pool.query('DELETE FROM producten WHERE naam=$1', [naam]);
+  res.json({ ok: true });
+});
+app.post('/api/producten/import', auth, adminOnly, async (req, res) => {
+  const { fileBase64 } = req.body || {};
+  if (!fileBase64) return res.status(400).json({ error: 'Geen bestand ontvangen' });
+  let rows;
+  try {
+    const buf = Buffer.from(fileBase64, 'base64');
+    const wb = XLSX.read(buf, { type: 'buffer' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    rows = XLSX.utils.sheet_to_json(ws, { raw: true, defval: '', header: 1 });
+  } catch (e) {
+    return res.status(400).json({ error: 'Kon het Excel-bestand niet lezen.' });
+  }
+  const n = v => (v === '' || v === undefined || v === null) ? null : parseInt(v, 10);
+  let imported = 0;
+  const skipped = [];
+  // Zoek de headerrij (bevat 'Motor Type' in een van de kolommen)
+  let headerIdx = rows.findIndex(r => r.some(c => String(c).toLowerCase().includes('motor type')));
+  if (headerIdx === -1) headerIdx = 0;
+  for (let i = headerIdx + 1; i < rows.length; i++) {
+    const row = rows[i];
+    const naam = row[0] ? String(row[0]).trim() : '';
+    if (!naam) continue;
+    try {
+      await pool.query(
+        `INSERT INTO producten(naam, motor_type, aantal_motors, verlengkabel_standaard, verlengkabel_dubbel, pinnen, zandzakken, valmatten, overige, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,now())
+         ON CONFLICT (naam) DO UPDATE SET motor_type=$2, aantal_motors=$3, verlengkabel_standaard=$4, verlengkabel_dubbel=$5, pinnen=$6, zandzakken=$7, valmatten=$8, overige=$9, updated_at=now()`,
+        [naam, row[1] ? String(row[1]).trim() : null, n(row[2]), n(row[3]), n(row[4]), n(row[5]), n(row[6]), n(row[7]), row[8] ? String(row[8]).trim() : '']
+      );
+      imported++;
+    } catch (e) {
+      skipped.push({ rij: i + 1, reden: 'Kon niet opgeslagen worden' });
+    }
+  }
+  res.json({ imported, skipped });
 });
 
 // ---------- Handmatig een melding versturen ----------
