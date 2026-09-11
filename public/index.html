@@ -853,6 +853,16 @@ function renderInstellingen(){
     <button class="btn small secondary" id="save-settings-btn">Opslaan</button>
   </div>
   <div class="section">
+    <h3>Betaal QR-code (Payconiq/Bancontact)</h3>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">
+      Upload jullie vaste betaal-QR-afbeelding. Die verschijnt dan in elk dossier bij "Betaling", zodat de chauffeur ze op het scherm kan tonen aan de klant — de klant scant en vult zelf het bedrag in, zoals jullie nu al doen met de losse afbeelding.
+    </div>
+    <div id="qr-preview" style="margin-bottom:10px">${appSettings.payconiqQrImage ? `<img src="${appSettings.payconiqQrImage}" style="max-width:180px;border-radius:var(--radius);display:block">` : '<div class="queue-note" style="text-align:left">Nog geen QR-afbeelding ingesteld.</div>'}</div>
+    <input type="file" accept="image/*" id="qr-upload-file" style="display:none">
+    <button class="btn small secondary" id="qr-upload-btn">Afbeelding kiezen</button>
+    <button class="btn small danger" id="qr-remove-btn" style="margin-top:8px;${appSettings.payconiqQrImage?'':'display:none'}">Verwijderen</button>
+  </div>
+  <div class="section">
     <h3>Materiaal-info</h3>
     <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">
       Vaste materiaal-info per product — verschijnt automatisch op de laadlijst en in het totaaloverzicht onderaan, telkens dit product in een boeking voorkomt. De naam moet exact overeenkomen met hoe het product in de boekingen genoemd wordt. Pinnen gelden voor "Op gras", zandzakken + valmatten voor "Harde ondergrond".
@@ -1269,6 +1279,28 @@ async function bindInstellingenEvents(){
       await apiFetch('/api/settings', { method:'PUT', body: JSON.stringify({ googleReviewUrl: url }) });
       appSettings.googleReviewUrl = url;
       showToast('Instellingen opgeslagen');
+    }catch(err){ showToast(err.message); }
+  });
+  document.getElementById('qr-upload-btn').addEventListener('click', ()=> document.getElementById('qr-upload-file').click());
+  document.getElementById('qr-upload-file').addEventListener('change', async (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    try{
+      const dataUrl = await resizeImageFile(file, 500, 0.85);
+      await apiFetch('/api/settings', { method:'PUT', body: JSON.stringify({ payconiqQrImage: dataUrl }) });
+      appSettings.payconiqQrImage = dataUrl;
+      showToast('QR-afbeelding opgeslagen');
+      setView('instellingen');
+    }catch(err){ showToast(err.message); }
+    e.target.value = '';
+  });
+  document.getElementById('qr-remove-btn').addEventListener('click', async ()=>{
+    if(!confirm('QR-afbeelding verwijderen?')) return;
+    try{
+      await apiFetch('/api/settings', { method:'PUT', body: JSON.stringify({ payconiqQrImage: '' }) });
+      appSettings.payconiqQrImage = '';
+      showToast('Verwijderd');
+      setView('instellingen');
     }catch(err){ showToast(err.message); }
   });
   document.getElementById('add-user-btn').addEventListener('click', async ()=>{
@@ -2196,6 +2228,7 @@ function renderDetail(d){
 
   <div class="section">
     <h3>Betaling</h3>
+    ${d.bedrag ? `<div style="font-size:13px;color:var(--text-dim);margin-bottom:10px">Te ontvangen: <b style="color:var(--text)">€ ${escapeHtml(d.bedrag)}</b></div>` : ''}
     <div class="pillgroup" id="betaling-pills">
       ${pill('reeds-voldaan','Reeds voldaan', d.betaling.status)}
       ${pill('voldaan-cash','Voldaan (cash)', d.betaling.status)}
@@ -2203,6 +2236,13 @@ function renderDetail(d){
       ${pill('factuur','Factuur opmaken', d.betaling.status)}
     </div>
     <div class="field" style="margin-top:10px"><label>Opmerking betaling</label><input type="text" id="betaling-opmerking" value="${escapeHtml(d.betaling.opmerking||'')}" placeholder="optioneel"></div>
+    ${appSettings.payconiqQrImage ? `
+    <button class="btn secondary" id="show-qr-btn" style="margin-top:12px">📱 Toon betaal-QR aan klant</button>
+    <div id="qr-code-display" style="display:none;text-align:center;margin-top:12px">
+      <img src="${appSettings.payconiqQrImage}" style="max-width:240px;width:100%;border-radius:var(--radius)">
+      <div style="font-size:12px;color:var(--text-dim);margin-top:6px">Klant scant en vult zelf het bedrag in${d.bedrag ? ' (€ ' + escapeHtml(d.bedrag) + ')' : ''}.</div>
+    </div>
+    ` : ''}
   </div>
 
   ${(!d.plaatsing.bevestigd && !isPlaatsingEarly) ? `
@@ -2361,6 +2401,16 @@ function resizeImageFile(file, maxWidth=900, quality=0.62){
 
 function bindDetailEvents(d){
   document.getElementById('back-btn').addEventListener('click', ()=> setView('list'));
+
+  const showQrBtn = document.getElementById('show-qr-btn');
+  if(showQrBtn){
+    showQrBtn.addEventListener('click', ()=>{
+      const qrDisplay = document.getElementById('qr-code-display');
+      const open = qrDisplay.style.display !== 'none';
+      qrDisplay.style.display = open ? 'none' : 'block';
+      showQrBtn.textContent = open ? '📱 Toon betaal-QR aan klant' : '✕ Verberg QR-code';
+    });
+  }
 
   const artikelenToggle = document.getElementById('artikelen-toggle');
   if(artikelenToggle){
