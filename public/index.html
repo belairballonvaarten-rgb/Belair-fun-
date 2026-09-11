@@ -537,6 +537,10 @@ button{font-family:'Inter',sans-serif;}
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
       Team
     </button>
+    <button data-tab="instellingen" class="tab-btn" id="instellingenTabBtn" style="display:none">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      Instellingen
+    </button>
   </div>
   <div class="toast" id="toast"></div>
 </div>
@@ -727,6 +731,13 @@ function render(){
         console.error('Fout bij laden van Team-gegevens:', err);
         showToast('Fout bij laden Team: ' + err.message);
       });
+    } else if(view === 'instellingen'){
+      sub.textContent = 'Instellingen';
+      main.innerHTML = renderInstellingen();
+      Promise.resolve(bindInstellingenEvents()).catch(err=>{
+        console.error('Fout bij laden van Instellingen:', err);
+        showToast('Fout bij laden Instellingen: ' + err.message);
+      });
     } else if(view === 'detail'){
       const d = getDelivery(currentId);
       if(!d){ setView('list'); return; }
@@ -770,10 +781,6 @@ function renderTeam(){
     <div id="unassigned-list">Laden...</div>
   </div>
   <div class="section">
-    <h3>Team</h3>
-    <div id="team-list">Laden...</div>
-  </div>
-  <div class="section">
     <h3>Melding versturen</h3>
     <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">Stuurt een push-melding naar het toestel van de gekozen persoon/team, enkel als je zelf op "Versturen" drukt.</div>
     <div class="field">
@@ -787,9 +794,17 @@ function renderTeam(){
     <button class="btn" id="notify-send-btn">Versturen</button>
     <div id="notify-result" style="margin-top:10px;font-size:13px;color:var(--text-dim)"></div>
   </div>
+  `;
+}
+function renderInstellingen(){
+  return `
+  <div class="section">
+    <h3>Team</h3>
+    <div id="team-list">Laden...</div>
+  </div>
   <div class="section">
     <h3>Voertuigen</h3>
-    <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">Het voertuig zelf blijft vast (bv. "Voertuig 1"), maar tik een voertuig open om de bemanning aan te passen telkens de ploeg wisselt — chauffeur en begeleider(s) hoeven dus niet elke shift opnieuw individueel toegewezen te worden.</div>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">Het voertuig zelf blijft vast (bv. "Voertuig 1"), maar tik een voertuig open om de bemanning aan te passen telkens de ploeg wisselt — chauffeur en begeleider(s) hoeven dus niet elke shift opnieuw individueel toegewezen te worden. Dagelijkse bemanningswissels kan je ook sneller via "Huidige bezetting" bovenaan Planning.</div>
     <div id="teams-list" style="margin-bottom:14px">Laden...</div>
     <div class="field"><label>Naam nieuw voertuig</label><input type="text" id="team-naam" placeholder="Bv. Voertuig 1"></div>
     <div class="field" id="team-members-field"><label>Beginbemanning</label><div id="team-members-checkboxes">Laden...</div></div>
@@ -1078,37 +1093,6 @@ function bindAssignmentOverviewEvents(){
   });
 }
 async function bindTeamEvents(){
-  document.getElementById('save-settings-btn').addEventListener('click', async ()=>{
-    const url = document.getElementById('s-google-review').value.trim();
-    try{
-      await apiFetch('/api/settings', { method:'PUT', body: JSON.stringify({ googleReviewUrl: url }) });
-      appSettings.googleReviewUrl = url;
-      showToast('Instellingen opgeslagen');
-    }catch(err){ showToast(err.message); }
-  });
-  document.getElementById('add-user-btn').addEventListener('click', async ()=>{
-    const naam = document.getElementById('t-naam').value.trim();
-    const username = document.getElementById('t-username').value.trim();
-    const password = document.getElementById('t-password').value;
-    const rol = document.getElementById('t-rol').value;
-    if(!naam || !username || !password){ showToast('Vul alle velden in'); return; }
-    try{
-      await apiFetch('/api/users', { method:'POST', body: JSON.stringify({ naam, username, password, rol }) });
-      showToast('Teamlid toegevoegd');
-      setView('team');
-    }catch(err){ showToast(err.message); }
-  });
-  document.getElementById('team-add-btn').addEventListener('click', async ()=>{
-    const naam = document.getElementById('team-naam').value.trim();
-    if(!naam){ showToast('Geef het voertuig een naam'); return; }
-    const memberIds = Array.from(document.querySelectorAll('.team-member-cb:checked')).map(cb => parseInt(cb.value,10));
-    try{
-      await apiFetch('/api/teams', { method:'POST', body: JSON.stringify({ naam, memberIds }) });
-      showToast('Voertuig toegevoegd');
-      document.getElementById('team-naam').value = '';
-      await loadTeamsData();
-    }catch(err){ showToast(err.message); }
-  });
   document.getElementById('notify-send-btn').addEventListener('click', async ()=>{
     const target = document.getElementById('notify-target').value;
     const title = document.getElementById('notify-title').value.trim();
@@ -1127,6 +1111,44 @@ async function bindTeamEvents(){
       resultEl.textContent = err.message;
       showToast(err.message);
     }
+  });
+  await loadTeamsData();
+  document.getElementById('unassigned-list').innerHTML = renderUnassigned();
+  document.getElementById('per-driver-list').innerHTML = renderPerVehicle();
+  bindAssignmentOverviewEvents();
+  await loadDriverLocations();
+}
+async function bindInstellingenEvents(){
+  document.getElementById('save-settings-btn').addEventListener('click', async ()=>{
+    const url = document.getElementById('s-google-review').value.trim();
+    try{
+      await apiFetch('/api/settings', { method:'PUT', body: JSON.stringify({ googleReviewUrl: url }) });
+      appSettings.googleReviewUrl = url;
+      showToast('Instellingen opgeslagen');
+    }catch(err){ showToast(err.message); }
+  });
+  document.getElementById('add-user-btn').addEventListener('click', async ()=>{
+    const naam = document.getElementById('t-naam').value.trim();
+    const username = document.getElementById('t-username').value.trim();
+    const password = document.getElementById('t-password').value;
+    const rol = document.getElementById('t-rol').value;
+    if(!naam || !username || !password){ showToast('Vul alle velden in'); return; }
+    try{
+      await apiFetch('/api/users', { method:'POST', body: JSON.stringify({ naam, username, password, rol }) });
+      showToast('Teamlid toegevoegd');
+      setView('instellingen');
+    }catch(err){ showToast(err.message); }
+  });
+  document.getElementById('team-add-btn').addEventListener('click', async ()=>{
+    const naam = document.getElementById('team-naam').value.trim();
+    if(!naam){ showToast('Geef het voertuig een naam'); return; }
+    const memberIds = Array.from(document.querySelectorAll('.team-member-cb:checked')).map(cb => parseInt(cb.value,10));
+    try{
+      await apiFetch('/api/teams', { method:'POST', body: JSON.stringify({ naam, memberIds }) });
+      showToast('Voertuig toegevoegd');
+      document.getElementById('team-naam').value = '';
+      await loadTeamsData();
+    }catch(err){ showToast(err.message); }
   });
   document.getElementById('product-add-btn').addEventListener('click', async ()=>{
     const naam = document.getElementById('product-naam').value.trim();
@@ -1175,10 +1197,6 @@ async function bindTeamEvents(){
   await refreshTeamList();
   await loadTeamsData();
   await loadProductenData();
-  document.getElementById('unassigned-list').innerHTML = renderUnassigned();
-  document.getElementById('per-driver-list').innerHTML = renderPerVehicle();
-  bindAssignmentOverviewEvents();
-  await loadDriverLocations();
 }
 function productSummaryLine(p){
   const parts = [];
@@ -1239,54 +1257,55 @@ async function loadTeamsData(){
   const teamsListEl = document.getElementById('teams-list');
   const checkboxesEl = document.getElementById('team-members-checkboxes');
   const notifyTargetEl = document.getElementById('notify-target');
-  if(!teamsListEl) return;
   try{ teamsData = await apiFetch('/api/teams'); }
-  catch(err){ teamsListEl.textContent = err.message; return; }
+  catch(err){ if(teamsListEl) teamsListEl.textContent = err.message; return; }
 
-  teamsListEl.innerHTML = teamsData.length === 0
-    ? `<div class="queue-note" style="text-align:left">Nog geen voertuigen aangemaakt.</div>`
-    : teamsData.map(t => `
-      <details class="driver-block" data-team-row="${t.id}">
-        <summary>${escapeHtml(t.naam)} <span class="driver-count">${t.leden.map(l=>escapeHtml(l.naam)).join(', ') || 'Geen bemanning'}</span></summary>
-        <div style="margin-top:10px">
-          <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px">Bemanning voor deze shift/rit:</div>
-          <div class="team-edit-checkboxes">
-            ${assignableUsers.map(u => `
-              <label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:14px;cursor:pointer">
-                <input type="checkbox" value="${u.id}" class="team-edit-cb" ${t.leden.some(l=>l.id===u.id) ? 'checked':''}> ${escapeHtml(u.naam)}
-              </label>
-            `).join('')}
+  if(teamsListEl){
+    teamsListEl.innerHTML = teamsData.length === 0
+      ? `<div class="queue-note" style="text-align:left">Nog geen voertuigen aangemaakt.</div>`
+      : teamsData.map(t => `
+        <details class="driver-block" data-team-row="${t.id}">
+          <summary>${escapeHtml(t.naam)} <span class="driver-count">${t.leden.map(l=>escapeHtml(l.naam)).join(', ') || 'Geen bemanning'}</span></summary>
+          <div style="margin-top:10px">
+            <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px">Bemanning voor deze shift/rit:</div>
+            <div class="team-edit-checkboxes">
+              ${assignableUsers.map(u => `
+                <label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:14px;cursor:pointer">
+                  <input type="checkbox" value="${u.id}" class="team-edit-cb" ${t.leden.some(l=>l.id===u.id) ? 'checked':''}> ${escapeHtml(u.naam)}
+                </label>
+              `).join('')}
+            </div>
+            <div class="stack" style="margin-top:10px">
+              <button class="btn small ok" data-save-team="${t.id}">Bemanning opslaan</button>
+              <button class="btn small danger" data-delete-team="${t.id}">Voertuig verwijderen</button>
+            </div>
           </div>
-          <div class="stack" style="margin-top:10px">
-            <button class="btn small ok" data-save-team="${t.id}">Bemanning opslaan</button>
-            <button class="btn small danger" data-delete-team="${t.id}">Voertuig verwijderen</button>
-          </div>
-        </div>
-      </details>
-    `).join('');
-  teamsListEl.querySelectorAll('[data-save-team]').forEach(btn=>{
-    btn.addEventListener('click', async (e)=>{
-      e.preventDefault();
-      const details = btn.closest('[data-team-row]');
-      const memberIds = Array.from(details.querySelectorAll('.team-edit-cb:checked')).map(cb=>parseInt(cb.value,10));
-      try{
-        await apiFetch('/api/teams/' + btn.dataset.saveTeam, { method:'PUT', body: JSON.stringify({ memberIds }) });
-        showToast('Bemanning bijgewerkt');
-        await loadTeamsData();
-      }catch(err){ showToast(err.message); }
+        </details>
+      `).join('');
+    teamsListEl.querySelectorAll('[data-save-team]').forEach(btn=>{
+      btn.addEventListener('click', async (e)=>{
+        e.preventDefault();
+        const details = btn.closest('[data-team-row]');
+        const memberIds = Array.from(details.querySelectorAll('.team-edit-cb:checked')).map(cb=>parseInt(cb.value,10));
+        try{
+          await apiFetch('/api/teams/' + btn.dataset.saveTeam, { method:'PUT', body: JSON.stringify({ memberIds }) });
+          showToast('Bemanning bijgewerkt');
+          await loadTeamsData();
+        }catch(err){ showToast(err.message); }
+      });
     });
-  });
-  teamsListEl.querySelectorAll('[data-delete-team]').forEach(btn=>{
-    btn.addEventListener('click', async (e)=>{
-      e.preventDefault();
-      if(!confirm('Dit voertuig verwijderen?')) return;
-      try{
-        await apiFetch('/api/teams/' + btn.dataset.deleteTeam, { method:'DELETE' });
-        showToast('Voertuig verwijderd');
-        await loadTeamsData();
-      }catch(err){ showToast(err.message); }
+    teamsListEl.querySelectorAll('[data-delete-team]').forEach(btn=>{
+      btn.addEventListener('click', async (e)=>{
+        e.preventDefault();
+        if(!confirm('Dit voertuig verwijderen?')) return;
+        try{
+          await apiFetch('/api/teams/' + btn.dataset.deleteTeam, { method:'DELETE' });
+          showToast('Voertuig verwijderd');
+          await loadTeamsData();
+        }catch(err){ showToast(err.message); }
+      });
     });
-  });
+  }
 
   if(checkboxesEl){
     checkboxesEl.innerHTML = assignableUsers.map(u => `
@@ -2828,6 +2847,7 @@ async function showApp(){
   document.getElementById('authScreen').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
   document.getElementById('teamTabBtn').style.display = (currentUser && currentUser.rol === 'admin') ? '' : 'none';
+  document.getElementById('instellingenTabBtn').style.display = (currentUser && currentUser.rol === 'admin') ? '' : 'none';
   if(currentUser && currentUser.rol === 'admin'){
     try{ assignableUsers = await apiFetch('/api/users'); }catch(e){ assignableUsers = []; }
   } else {
