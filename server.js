@@ -389,6 +389,9 @@ app.post('/api/import', auth, adminOnly, async (req, res) => {
     d.afhaaltijd = normalizeTime(getField(row, 'Collection', 'Afhaaltijd'));
     d.artikelen = getField(row, 'Item', 'Artikelen');
     d.bedrag = getField(row, 'Balance', 'Bedrag', 'Saldo');
+    if (d.bedrag && parseFloat(d.bedrag.replace(',', '.')) === 0) {
+      d.betaling.status = 'reeds-voldaan';
+    }
     d.boekingsnummer = boekingsnummer;
     d.plaatsing.tijdstip = '';
 
