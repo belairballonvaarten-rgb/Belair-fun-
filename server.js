@@ -539,8 +539,16 @@ app.get('/api/my-teams', auth, async (req, res) => {
   );
   res.json(r.rows);
 });
+app.put('/api/my-team', auth, async (req, res) => {
+  const { teamId } = req.body || {};
+  await pool.query('DELETE FROM team_members WHERE user_id=$1', [req.user.id]);
+  if (teamId) {
+    await pool.query('INSERT INTO team_members(team_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [teamId, req.user.id]);
+  }
+  res.json({ ok: true });
+});
 
-app.get('/api/teams', auth, adminOnly, async (req, res) => {
+app.get('/api/teams', auth, async (req, res) => {
   const teamsRes = await pool.query('SELECT id, naam FROM teams ORDER BY naam');
   const membersRes = await pool.query(
     `SELECT tm.team_id, u.id, u.naam FROM team_members tm JOIN users u ON u.id = tm.user_id`
