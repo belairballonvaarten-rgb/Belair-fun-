@@ -139,6 +139,7 @@ main{flex:1;padding:16px;}
 .section-label.te-leveren-label::before{background:var(--accent);}
 .section-label.op-te-halen-label::before{background:var(--wacht);}
 .section-label.afgerond-label::before{background:var(--ok);}
+.section-label.geleverd-label::before{background:var(--ok);}
 .next-pickup-banner{
   background:rgba(59,130,246,0.12);
   border:1px solid rgba(59,130,246,0.4);
@@ -200,6 +201,7 @@ main{flex:1;padding:16px;}
 .card.status-te-leveren{border-left-color:var(--accent);}
 .card.status-geplaatst{border-left-color:var(--wacht);}
 .card.status-afgerond{border-left-color:var(--ok);opacity:0.72;}
+.card.status-geleverd-klaar{border-left-color:var(--ok);}
 .card .row1{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;}
 .card .klant{font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:18px;}
 .card .tijd{font-size:13px;color:var(--text-dim);white-space:nowrap;}
@@ -1210,6 +1212,20 @@ function cardHtml(d, extraClass){
     </div>` : ''}
   </div>`;
 }
+function deliveredCardHtml(d){
+  const factuurStar = (currentUser.rol === 'admin' && d.betaling.status === 'factuur') ? `<span class="star-badge" title="Nog te factureren">★</span>` : '';
+  const tijd = d.plaatsing.bevestigdOp ? fmtDateTime(d.plaatsing.bevestigdOp) : '';
+  return `<div class="card status-geleverd-klaar" data-id="${d.id}">
+    <div class="row1">
+      <div>
+        <div class="klant">${escapeHtml(primaryProductLabel(d))} ${factuurStar}</div>
+        <div class="adres" style="margin-top:1px">${escapeHtml(d.klant || 'Naamloos')}</div>
+      </div>
+      <div class="tijd">${escapeHtml(d.tijdslot || '')}</div>
+    </div>
+    <div style="margin-top:6px;font-size:12.5px;color:var(--ok);font-weight:600">✓ Geleverd${tijd ? ' — ' + tijd : ''}</div>
+  </div>`;
+}
 function relevantDateForItem(d){
   return (d.status === 'geplaatst' || d.status === 'afgerond') ? (d.afhaaldatum || d.datum) : d.datum;
 }
@@ -1239,53 +1255,61 @@ function renderList(){
     ? deliveries.filter(d => isAssignedToMe(d.toegewezenAan) || isAssignedToMe(d.toegewezenAanAfhaling))
     : deliveries;
 
-  if(dateScope === 'vandaag'){
-    const today = todayISO();
-    visible = visible.filter(d => relevantDateForItem(d) === today);
-  } else if(dateScope === 'morgen'){
-    const morgen = new Date(); morgen.setDate(morgen.getDate()+1);
-    const morgenISO = morgen.toISOString().slice(0,10);
-    visible = visible.filter(d => relevantDateForItem(d) === morgenISO);
-  } else if(currentUser.rol !== 'admin'){
-    const cutoff = weekCutoffISO();
-    visible = visible.filter(d => {
-      const datum = relevantDateForItem(d);
-      return !datum || datum <= cutoff;
-    });
-  }
-
   if(deliveries.length === 0){
     return vehicleOccupancyPanel + `<div class="empty">
       <div class="big">Nog geen leveringen</div>
       Voeg een levering toe via "Nieuw" onderaan.
     </div>`;
   }
-  if(visible.length === 0){
-    const scopeMsg = dateScope==='vandaag' ? 'Niets gepland voor vandaag.' : dateScope==='morgen' ? 'Niets gepland voor morgen.' : 'Bekijk "Alles" of vraag de admin naar de volledige planning.';
-    return vehicleOccupancyPanel + filterBar + `<div class="empty"><div class="big">Niets gevonden</div>${scopeMsg}</div>`;
-  }
 
   renderedSections = {};
   const groups = {};
+  function ensureGroup(key){
+    if(!groups[key]) groups[key] = { teLeveren:[], geleverdKlaar:[], opTeHalen:[], afgerond:[] };
+    return groups[key];
+  }
   visible.forEach(d=>{
-    const key = (d.status === 'geplaatst' || d.status === 'afgerond') ? (d.afhaaldatum || d.datum || 'Onbekend') : (d.datum || 'Onbekend');
-    if(!groups[key]) groups[key] = [];
-    groups[key].push(d);
+    if(d.datum){
+      const g = ensureGroup(d.datum);
+      if(d.status === 'te-leveren') g.teLeveren.push(d);
+      else g.geleverdKlaar.push(d); // reeds geleverd (geplaatst of afgerond)
+    }
+    if(d.status === 'geplaatst' || d.status === 'afgerond'){
+      const afhaalKey = d.afhaaldatum || d.datum;
+      if(afhaalKey){
+        const g = ensureGroup(afhaalKey);
+        if(d.status === 'geplaatst') g.opTeHalen.push(d);
+        else g.afgerond.push(d);
+      }
+    }
   });
+
+  // Welke datumsleutels mogen we tonen, op basis van de gekozen periode?
+  let allowedDateKeys = null; // null = geen beperking (behalve evt. weekgrens hieronder)
+  if(dateScope === 'vandaag'){
+    allowedDateKeys = new Set([todayISO()]);
+  } else if(dateScope === 'morgen'){
+    const morgen = new Date(); morgen.setDate(morgen.getDate()+1);
+    allowedDateKeys = new Set([morgen.toISOString().slice(0,10)]);
+  }
+  const weekCutoff = (!allowedDateKeys && currentUser.rol !== 'admin') ? weekCutoffISO() : null;
 
   let html = vehicleOccupancyPanel + filterBar;
   let anyDayShown = false;
   Object.keys(groups).sort().forEach(dateKey=>{
-    const items = groups[dateKey];
-    let teLeveren = items.filter(d => d.status === 'te-leveren').sort((a,b)=> sortKeyFor(a,'tijdslot') - sortKeyFor(b,'tijdslot'));
-    let opTeHalen = items.filter(d => d.status === 'geplaatst').sort((a,b)=> sortKeyFor(a,'afhaaltijd') - sortKeyFor(b,'afhaaltijd'));
-    let afgerond = items.filter(d => d.status === 'afgerond').sort((a,b)=> sortKeyFor(a,'afhaaltijd') - sortKeyFor(b,'afhaaltijd'));
+    if(allowedDateKeys && !allowedDateKeys.has(dateKey)) return;
+    if(weekCutoff && dateKey > weekCutoff) return;
 
-    if(!showLeveringen){ teLeveren = []; }
-    if(!showAfhalingen){ opTeHalen = []; }
-    if(!showLeveringen && !showAfhalingen){ afgerond = []; }
+    let { teLeveren, geleverdKlaar, opTeHalen, afgerond } = groups[dateKey];
+    teLeveren = [...teLeveren].sort((a,b)=> sortKeyFor(a,'tijdslot') - sortKeyFor(b,'tijdslot'));
+    geleverdKlaar = [...geleverdKlaar].sort((a,b)=> sortKeyFor(a,'tijdslot') - sortKeyFor(b,'tijdslot'));
+    opTeHalen = [...opTeHalen].sort((a,b)=> sortKeyFor(a,'afhaaltijd') - sortKeyFor(b,'afhaaltijd'));
+    afgerond = [...afgerond].sort((a,b)=> sortKeyFor(a,'afhaaltijd') - sortKeyFor(b,'afhaaltijd'));
 
-    if(teLeveren.length === 0 && opTeHalen.length === 0 && afgerond.length === 0) return;
+    if(!showLeveringen){ teLeveren = []; geleverdKlaar = []; }
+    if(!showAfhalingen){ opTeHalen = []; afgerond = []; }
+
+    if(teLeveren.length === 0 && geleverdKlaar.length === 0 && opTeHalen.length === 0 && afgerond.length === 0) return;
     anyDayShown = true;
 
     const teLeverenKey = dateKey + '|te-leveren';
@@ -1303,6 +1327,10 @@ function renderList(){
     if(teLeveren.length){
       html += `<div class="section-label te-leveren-label">Te leveren</div>`;
       teLeveren.forEach(d => html += cardHtml(d, teLeverenKey));
+    }
+    if(geleverdKlaar.length){
+      html += `<div class="section-label geleverd-label">Geleverd</div>`;
+      geleverdKlaar.forEach(d => html += deliveredCardHtml(d));
     }
     if(opTeHalen.length){
       html += `<div class="section-label op-te-halen-label">Op te halen</div>`;
@@ -1631,13 +1659,15 @@ function renderDetail(d){
     </div>
   </div>` : ''}
 
+  ${!d.plaatsing.bevestigd ? `
   <div class="section">
     <h3>Leverdatum &amp; levertijd</h3>
     <div class="two-col">
-      <div class="field"><label>Leverdatum</label><input type="date" id="edit-datum" value="${d.datum||''}" ${d.plaatsing.bevestigd?'disabled':''}></div>
-      <div class="field"><label>Tijdslot</label><input type="text" id="edit-tijdslot" value="${escapeHtml(d.tijdslot||'')}" placeholder="Bv. 09:00 - 10:00" ${d.plaatsing.bevestigd?'disabled':''}></div>
+      <div class="field"><label>Leverdatum</label><input type="date" id="edit-datum" value="${d.datum||''}"></div>
+      <div class="field"><label>Tijdslot</label><input type="text" id="edit-tijdslot" value="${escapeHtml(d.tijdslot||'')}" placeholder="Bv. 09:00 - 10:00"></div>
     </div>
   </div>
+  ` : ''}
 
   <div class="section">
     <h3>Afhaaltijd bevestigen</h3>
@@ -1649,15 +1679,19 @@ function renderDetail(d){
 
   <div class="section">
     <h3>Checklist bij plaatsing</h3>
-    ${isPlaatsingEarly ? `<div class="queue-note" style="margin-bottom:12px;text-align:left;border-color:rgba(217,164,65,0.5);color:var(--warn)">
-      Deze levering is pas voorzien op <b>${fmtDate(d.datum)}</b> (over ${plaatsingEarlyDays} dag${plaatsingEarlyDays===1?'':'en'}). Wenst u deze nu reeds te leveren?
-      <div class="stack" style="margin-top:8px"><button class="btn small ok" id="early-confirm-plaatsing">Ja, nu al leveren</button></div>
-    </div>` : ''}
-    ${d.ondergrond ? `<div class="queue-note" style="margin-bottom:12px;text-align:left">Ondergrond volgens planning: <b>${escapeHtml(normalizeOndergrond(d.ondergrond))}</b></div>` : ''}
-    ${d.plaatsing.bevestigd ? `<div class="locked-banner">✓ Levering bevestigd — ${fmtDateTime(d.plaatsing.bevestigdOp)}</div>` : ''}
-    <div class="${(d.plaatsing.bevestigd || isPlaatsingEarly) ? 'locked-block' : ''}">
-      ${renderPlaatsingChecklist(d)}
-    </div>
+    ${!d.plaatsing.bevestigd ? `
+      ${isPlaatsingEarly ? `<div class="queue-note" style="margin-bottom:12px;text-align:left;border-color:rgba(217,164,65,0.5);color:var(--warn)">
+        Deze levering is pas voorzien op <b>${fmtDate(d.datum)}</b> (over ${plaatsingEarlyDays} dag${plaatsingEarlyDays===1?'':'en'}). Wenst u deze nu reeds te leveren?
+        <div class="stack" style="margin-top:8px"><button class="btn small ok" id="early-confirm-plaatsing">Ja, nu al leveren</button></div>
+      </div>` : ''}
+      ${d.ondergrond ? `<div class="queue-note" style="margin-bottom:12px;text-align:left">Ondergrond volgens planning: <b>${escapeHtml(normalizeOndergrond(d.ondergrond))}</b></div>` : ''}
+      <div class="${isPlaatsingEarly ? 'locked-block' : ''}">
+        ${renderPlaatsingChecklist(d)}
+      </div>
+    ` : `
+      <div class="locked-banner">✓ Levering bevestigd — ${fmtDateTime(d.plaatsing.bevestigdOp)}</div>
+      <button class="btn small secondary" id="edit-plaatsing">Levering bewerken</button>
+    `}
   </div>
 
   <div class="section" id="fotos-section">
@@ -1676,11 +1710,11 @@ function renderDetail(d){
     <div class="field" style="margin-top:10px"><label>Opmerking betaling</label><input type="text" id="betaling-opmerking" value="${escapeHtml(d.betaling.opmerking||'')}" placeholder="optioneel"></div>
   </div>
 
+  ${(!d.plaatsing.bevestigd && !isPlaatsingEarly) ? `
   <div class="stack" style="margin-bottom:14px">
-    ${isPlaatsingEarly ? '' : (!d.plaatsing.bevestigd
-      ? `<button class="btn ok" id="confirm-plaatsing">Levering bevestigen</button>`
-      : `<button class="btn secondary" id="edit-plaatsing">Levering bewerken</button>`)}
+    <button class="btn ok" id="confirm-plaatsing">Levering bevestigen</button>
   </div>
+  ` : ''}
 
   ${d.plaatsing.bevestigd ? `
   <div class="section">
