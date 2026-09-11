@@ -834,7 +834,7 @@ function renderTeam(){
       <label>Motor type</label>
       <select id="product-motor-type">
         <option value="">Geen</option>
-        <option value="Standaard">Standaard</option>
+        <option value="Standaard motor">Standaard motor</option>
         <option value="Zware motor">Zware motor</option>
         <option value="Gele motor">Gele motor</option>
       </select>
@@ -913,7 +913,7 @@ function materiaalLabelVoorItem(naam, ondergrondNorm){
   const p = findProduct(naam);
   if(!p) return null;
   const parts = [];
-  if(p.motorType) parts.push(`${p.aantalMotors||1}x ${p.motorType}`);
+  if(p.motorType) parts.push(`${p.aantalMotors||1}x ${motorTypeLabel(p.motorType)}`);
   const kabels = (p.verlengkabelStandaard||0) + (p.verlengkabelDubbel||0);
   if(p.verlengkabelStandaard) parts.push(`${p.verlengkabelStandaard} kabel${p.verlengkabelStandaard>1?'s':''} standaard`);
   if(p.verlengkabelDubbel) parts.push(`${p.verlengkabelDubbel} kabel${p.verlengkabelDubbel>1?'s':''} dubbel`);
@@ -962,17 +962,23 @@ async function generateLaadlijstPdf(teamId, dateStr){
 
   leveringen.forEach((d, i) => {
     const ondergrondNorm = normalizeOndergrond(d.ondergrond);
-    ensureSpace(20);
-    doc.setFont('helvetica','bold'); doc.setFontSize(12); doc.setTextColor(232,99,30);
-    doc.text(`${i+1}. ${d.klant} — ${d.tijdslot || '?'}`, marginL, y); y += 6;
-    doc.setDrawColor(232,99,30); doc.setLineWidth(0.3); doc.line(marginL, y-4.5, pageW-marginL, y-4.5);
+    ensureSpace(24);
+
+    doc.setFont('helvetica','bold'); doc.setFontSize(12.5); doc.setTextColor(232,99,30);
+    const titelWrapped = doc.splitTextToSize(`${i+1}. ${primaryProductLabel(d)}`, pageW - marginL*2);
+    ensureSpace(titelWrapped.length*6);
+    doc.text(titelWrapped, marginL, y); y += titelWrapped.length*6;
+    doc.setDrawColor(232,99,30); doc.setLineWidth(0.3); doc.line(marginL, y-3.5, pageW-marginL, y-3.5); y += 1.5;
     doc.setTextColor(30,30,30);
 
     doc.setFont('helvetica','normal'); doc.setFontSize(10);
     const adresWrapped = doc.splitTextToSize(d.adres || 'Geen adres', pageW - marginL*2);
     ensureSpace(adresWrapped.length*5);
     doc.text(adresWrapped, marginL, y); y += adresWrapped.length*5;
-    doc.setTextColor(90,90,90); doc.setFontSize(9);
+
+    doc.setFontSize(9); doc.setTextColor(130,130,130);
+    doc.text(`${d.tijdslot || '?'} — ${d.klant || ''}`, marginL, y); y += 5;
+    doc.setTextColor(90,90,90);
     doc.text('Ondergrond: ' + (ondergrondNorm || 'onbekend'), marginL, y); y += 6;
     doc.setTextColor(30,30,30);
 
@@ -990,7 +996,7 @@ async function generateLaadlijstPdf(teamId, dateStr){
       const p = findProduct(item.naam);
       if(p){
         const factor = item.aantal;
-        if(p.motorType) motorTotalen[p.motorType] = (motorTotalen[p.motorType]||0) + (p.aantalMotors||1)*factor;
+        if(p.motorType) { const mLabel = motorTypeLabel(p.motorType); motorTotalen[mLabel] = (motorTotalen[mLabel]||0) + (p.aantalMotors||1)*factor; }
         kabelStandaardTotaal += (p.verlengkabelStandaard||0)*factor;
         kabelDubbelTotaal += (p.verlengkabelDubbel||0)*factor;
         if(ondergrondNorm === 'Harde ondergrond'){
@@ -1176,7 +1182,7 @@ async function bindTeamEvents(){
 }
 function productSummaryLine(p){
   const parts = [];
-  if(p.motorType) parts.push((p.aantalMotors||1) + 'x ' + p.motorType);
+  if(p.motorType) parts.push((p.aantalMotors||1) + 'x ' + motorTypeLabel(p.motorType));
   if(p.verlengkabelStandaard) parts.push(p.verlengkabelStandaard + ' kabel(s) standaard');
   if(p.verlengkabelDubbel) parts.push(p.verlengkabelDubbel + ' kabel(s) dubbel');
   if(p.pinnen) parts.push(p.pinnen + ' pinnen (gras)');
@@ -1221,6 +1227,10 @@ let productenData = [];
 function productOpmerking(naam){
   const p = productenData.find(p => p.naam.toLowerCase() === naam.toLowerCase());
   return p ? p.opmerking : '';
+}
+function motorTypeLabel(type){
+  if(!type) return '';
+  return type.trim().toLowerCase() === 'standaard' ? 'Standaard motor' : type;
 }
 function findProduct(naam){
   return productenData.find(p => p.naam.toLowerCase() === naam.toLowerCase()) || null;
