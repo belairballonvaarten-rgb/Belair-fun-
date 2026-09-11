@@ -863,6 +863,17 @@ function renderInstellingen(){
     <button class="btn small danger" id="qr-remove-btn" style="margin-top:8px;${appSettings.payconiqQrImage?'':'display:none'}">Verwijderen</button>
   </div>
   <div class="section">
+    <h3>Website-koppeling (beschikbaarheid)</h3>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">
+      Stuurt de actuele boekingen (leverdatum t.e.m. afhaaldatum, per product) naar je WordPress-plugin "Belair Beschikbaarheid", zodat de kalender op je website automatisch bijgewerkt blijft — geen aparte Excel/CSV meer nodig. Gebeurt enkel wanneer je zelf op de knop drukt.
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:10px;cursor:pointer">
+      <input type="checkbox" id="sync-full-sync"> Volledige synchronisatie (vervangt alle eerder via de app doorgestuurde blokkeringen — gebruik dit enkel als je zeker weet dat de lijst hieronder de volledige actuele planning bevat)
+    </label>
+    <button class="btn secondary" id="sync-website-btn">🔄 Nu synchroniseren</button>
+    <div id="sync-result" style="margin-top:10px;font-size:13px;color:var(--text-dim)"></div>
+  </div>
+  <div class="section">
     <h3>Materiaal-info</h3>
     <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">
       Vaste materiaal-info per product — verschijnt automatisch op de laadlijst en in het totaaloverzicht onderaan, telkens dit product in een boeking voorkomt. De naam moet exact overeenkomen met hoe het product in de boekingen genoemd wordt. Pinnen gelden voor "Op gras", zandzakken + valmatten voor "Harde ondergrond".
@@ -1302,6 +1313,25 @@ async function bindInstellingenEvents(){
       showToast('Verwijderd');
       setView('instellingen');
     }catch(err){ showToast(err.message); }
+  });
+  document.getElementById('sync-website-btn').addEventListener('click', async (e)=>{
+    const btn = e.currentTarget;
+    const fullSync = document.getElementById('sync-full-sync').checked;
+    if(fullSync && !confirm('Zeker? Dit vervangt alle eerder via de app doorgestuurde blokkeringen op je website door de huidige lijst.')) return;
+    const resultEl = document.getElementById('sync-result');
+    btn.disabled = true;
+    resultEl.textContent = 'Bezig met synchroniseren...';
+    try{
+      const r = await apiFetch('/api/sync-website', { method:'POST', body: JSON.stringify({ fullSync }) });
+      let msg = `${r.inserted} blokkering(en) bijgewerkt op de website (${r.verstuurd} boekingen verstuurd, ${r.mapped} producten herkend, ${r.ignored} genegeerd).`;
+      if(r.failed) msg += ` ${r.failed} mislukt.`;
+      if(r.unknown && r.unknown.length){
+        msg += ' Onbekende productnamen: ' + r.unknown.map(u=>`${u.name} (${u.count}x)`).join(', ') + '.';
+      }
+      resultEl.textContent = msg;
+      showToast('Synchronisatie voltooid');
+    }catch(err){ resultEl.textContent = err.message; showToast(err.message); }
+    btn.disabled = false;
   });
   document.getElementById('add-user-btn').addEventListener('click', async ()=>{
     const naam = document.getElementById('t-naam').value.trim();
