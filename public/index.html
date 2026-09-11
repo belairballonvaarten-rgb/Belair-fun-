@@ -1168,10 +1168,13 @@ function assignmentMatchesUser(assignment, userId){
   }
   return assignment.id === userId;
 }
+function splitArtikelen(artikelen){
+  return String(artikelen||'').split(/[\n,/+]/).map(s=>s.trim()).filter(Boolean);
+}
 function primaryProductLabel(d){
-  const items = (d.artikelen||'').split(/[\n,+]/).map(s=>s.trim()).filter(Boolean);
+  const items = splitArtikelen(d.artikelen);
   if(items.length === 0) return d.klant || 'Naamloos';
-  return items[0] + (items.length > 1 ? ', ...' : '');
+  return items[0] + (items.length > 1 ? ` (+${items.length - 1} meer)` : '');
 }
 function cardHtml(d, extraClass){
   const isAfhalingFase = (d.status === 'geplaatst' || d.status === 'afgerond');
@@ -1607,7 +1610,7 @@ function daysBetween(a,b){
   return Math.round((new Date(b+'T00:00:00') - new Date(a+'T00:00:00')) / 86400000);
 }
 function renderArtikelenBlock(artikelen){
-  const lines = String(artikelen).split('\n').map(s=>s.trim()).filter(Boolean);
+  const lines = splitArtikelen(artikelen);
   if(lines.length <= 1){
     return `<div class="field" style="margin-bottom:8px"><div style="font-size:14px">${escapeHtml(lines[0]||artikelen)}</div></div>`;
   }
