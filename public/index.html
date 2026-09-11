@@ -745,12 +745,12 @@ function renderTeam(){
     <div id="notify-result" style="margin-top:10px;font-size:13px;color:var(--text-dim)"></div>
   </div>
   <div class="section">
-    <h3>Voertuigteams</h3>
-    <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">Groepeer bv. een chauffeur en begeleider(s) van hetzelfde voertuig, zodat je ze samen een melding kan sturen.</div>
+    <h3>Voertuigen</h3>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">Het voertuig zelf blijft vast (bv. "Voertuig 1"), maar tik een voertuig open om de bemanning aan te passen telkens de ploeg wisselt — chauffeur en begeleider(s) hoeven dus niet elke shift opnieuw individueel toegewezen te worden.</div>
     <div id="teams-list" style="margin-bottom:14px">Laden...</div>
-    <div class="field"><label>Naam nieuw team</label><input type="text" id="team-naam" placeholder="Bv. Voertuig 1"></div>
-    <div class="field" id="team-members-field"><label>Leden</label><div id="team-members-checkboxes">Laden...</div></div>
-    <button class="btn small secondary" id="team-add-btn">Team toevoegen</button>
+    <div class="field"><label>Naam nieuw voertuig</label><input type="text" id="team-naam" placeholder="Bv. Voertuig 1"></div>
+    <div class="field" id="team-members-field"><label>Beginbemanning</label><div id="team-members-checkboxes">Laden...</div></div>
+    <button class="btn small secondary" id="team-add-btn">Voertuig toevoegen</button>
   </div>
   <div class="section">
     <h3>Nieuw teamlid</h3>
@@ -811,9 +811,9 @@ function renderUnassigned(){
 function renderPerDriver(){
   if(teamUsers.length === 0) return 'Nog geen teamleden.';
   const blocks = teamUsers.map(u=>{
-    const leveringen = deliveries.filter(d => d.toegewezenAan && d.toegewezenAan.id === u.id && d.datum === perDriverDate)
+    const leveringen = deliveries.filter(d => assignmentMatchesUser(d.toegewezenAan, u.id) && d.datum === perDriverDate)
       .sort((a,b)=> sortKeyFor(a,'tijdslot') - sortKeyFor(b,'tijdslot'));
-    const afhalingen = deliveries.filter(d => d.toegewezenAanAfhaling && d.toegewezenAanAfhaling.id === u.id && (d.afhaaldatum || d.datum) === perDriverDate)
+    const afhalingen = deliveries.filter(d => assignmentMatchesUser(d.toegewezenAanAfhaling, u.id) && (d.afhaaldatum || d.datum) === perDriverDate)
       .sort((a,b)=> sortKeyFor(a,'afhaaltijd') - sortKeyFor(b,'afhaaltijd'));
     const totaal = leveringen.length + afhalingen.length;
     if(totaal === 0) return '';
@@ -867,11 +867,11 @@ async function bindTeamEvents(){
   });
   document.getElementById('team-add-btn').addEventListener('click', async ()=>{
     const naam = document.getElementById('team-naam').value.trim();
-    if(!naam){ showToast('Geef het team een naam'); return; }
+    if(!naam){ showToast('Geef het voertuig een naam'); return; }
     const memberIds = Array.from(document.querySelectorAll('.team-member-cb:checked')).map(cb => parseInt(cb.value,10));
     try{
       await apiFetch('/api/teams', { method:'POST', body: JSON.stringify({ naam, memberIds }) });
-      showToast('Team toegevoegd');
+      showToast('Voertuig toegevoegd');
       document.getElementById('team-naam').value = '';
       await loadTeamsData();
     }catch(err){ showToast(err.message); }
@@ -896,11 +896,11 @@ async function bindTeamEvents(){
     }
   });
   await refreshTeamList();
+  await loadTeamsData();
   document.getElementById('unassigned-list').innerHTML = renderUnassigned();
   document.getElementById('per-driver-list').innerHTML = renderPerDriver();
   bindAssignmentOverviewEvents();
   await loadDriverLocations();
-  await loadTeamsData();
 }
 
 let teamsData = [];
@@ -913,22 +913,45 @@ async function loadTeamsData(){
   catch(err){ teamsListEl.textContent = err.message; return; }
 
   teamsListEl.innerHTML = teamsData.length === 0
-    ? `<div class="queue-note" style="text-align:left">Nog geen voertuigteams aangemaakt.</div>`
+    ? `<div class="queue-note" style="text-align:left">Nog geen voertuigen aangemaakt.</div>`
     : teamsData.map(t => `
-      <div class="team-row">
-        <div>
-          <div class="naam">${escapeHtml(t.naam)}</div>
-          <div class="rolbadge">${t.leden.map(l=>escapeHtml(l.naam)).join(', ') || 'Geen leden'}</div>
+      <details class="driver-block" data-team-row="${t.id}">
+        <summary>${escapeHtml(t.naam)} <span class="driver-count">${t.leden.map(l=>escapeHtml(l.naam)).join(', ') || 'Geen bemanning'}</span></summary>
+        <div style="margin-top:10px">
+          <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px">Bemanning voor deze shift/rit:</div>
+          <div class="team-edit-checkboxes">
+            ${assignableUsers.map(u => `
+              <label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:14px;cursor:pointer">
+                <input type="checkbox" value="${u.id}" class="team-edit-cb" ${t.leden.some(l=>l.id===u.id) ? 'checked':''}> ${escapeHtml(u.naam)}
+              </label>
+            `).join('')}
+          </div>
+          <div class="stack" style="margin-top:10px">
+            <button class="btn small ok" data-save-team="${t.id}">Bemanning opslaan</button>
+            <button class="btn small danger" data-delete-team="${t.id}">Voertuig verwijderen</button>
+          </div>
         </div>
-        <span class="rm" data-team-id="${t.id}">Verwijderen</span>
-      </div>
+      </details>
     `).join('');
-  teamsListEl.querySelectorAll('.rm').forEach(btn=>{
-    btn.addEventListener('click', async ()=>{
-      if(!confirm('Dit voertuigteam verwijderen?')) return;
+  teamsListEl.querySelectorAll('[data-save-team]').forEach(btn=>{
+    btn.addEventListener('click', async (e)=>{
+      e.preventDefault();
+      const details = btn.closest('[data-team-row]');
+      const memberIds = Array.from(details.querySelectorAll('.team-edit-cb:checked')).map(cb=>parseInt(cb.value,10));
       try{
-        await apiFetch('/api/teams/' + btn.dataset.teamId, { method:'DELETE' });
-        showToast('Team verwijderd');
+        await apiFetch('/api/teams/' + btn.dataset.saveTeam, { method:'PUT', body: JSON.stringify({ memberIds }) });
+        showToast('Bemanning bijgewerkt');
+        await loadTeamsData();
+      }catch(err){ showToast(err.message); }
+    });
+  });
+  teamsListEl.querySelectorAll('[data-delete-team]').forEach(btn=>{
+    btn.addEventListener('click', async (e)=>{
+      e.preventDefault();
+      if(!confirm('Dit voertuig verwijderen?')) return;
+      try{
+        await apiFetch('/api/teams/' + btn.dataset.deleteTeam, { method:'DELETE' });
+        showToast('Voertuig verwijderd');
         await loadTeamsData();
       }catch(err){ showToast(err.message); }
     });
@@ -1046,6 +1069,19 @@ function sortKeyFor(d, timeField){
   const mins = timeMinutes(d[timeField]);
   return 100000 + (mins != null ? mins : 9999);
 }
+function isAssignedToMe(assignment){
+  if(!assignment) return false;
+  if(assignment.type === 'team') return myTeamIds.includes(assignment.id);
+  return assignment.id === currentUser.id;
+}
+function assignmentMatchesUser(assignment, userId){
+  if(!assignment) return false;
+  if(assignment.type === 'team'){
+    const team = teamsData.find(t => t.id === assignment.id);
+    return team ? team.leden.some(l => l.id === userId) : false;
+  }
+  return assignment.id === userId;
+}
 function primaryProductLabel(d){
   const items = (d.artikelen||'').split(/[\n,+]/).map(s=>s.trim()).filter(Boolean);
   if(items.length === 0) return d.klant || 'Naamloos';
@@ -1054,11 +1090,11 @@ function primaryProductLabel(d){
 function cardHtml(d, extraClass){
   const isAfhalingFase = (d.status === 'geplaatst' || d.status === 'afgerond');
   const relevantAssign = isAfhalingFase ? d.toegewezenAanAfhaling : d.toegewezenAan;
-  const forMe = relevantAssign && relevantAssign.id === currentUser.id;
+  const forMe = isAssignedToMe(relevantAssign);
   const assignLabel = forMe
     ? `<span class="assign-badge mine">Voor jou</span>`
     : relevantAssign
-      ? `<span class="assign-badge other">→ ${escapeHtml(relevantAssign.naam)}</span>`
+      ? `<span class="assign-badge other">${relevantAssign.type==='team'?'👥 ':'→ '}${escapeHtml(relevantAssign.naam)}</span>`
       : `<span class="assign-badge open">Alle chauffeurs</span>`;
   const factuurStar = (currentUser.rol === 'admin' && d.betaling.status === 'factuur') ? `<span class="star-badge" title="Nog te factureren">★</span>` : '';
   const verzetBadge = d.afhaling.verzetAangevraagd ? `<span class="assign-badge other" style="background:rgba(217,164,65,0.18);color:var(--warn)">🔁 Verzet aangevraagd</span>` : '';
@@ -1100,6 +1136,17 @@ function weekCutoffISO(){
   return d.toISOString().slice(0,10);
 }
 function renderList(){
+  const myVehicleWidget = currentUser.rol !== 'admin' ? `
+    <div class="section" style="padding:12px 16px;margin-bottom:14px">
+      <div class="field" style="margin-bottom:0">
+        <label>Jouw voertuig</label>
+        <select id="my-vehicle-select">
+          <option value="">Niet toegewezen</option>
+          ${teamsData.map(t=>`<option value="${t.id}" ${myTeamIds.includes(t.id)?'selected':''}>${escapeHtml(t.naam)}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+  ` : '';
   const filterBar = `
     <div class="pillgroup" id="list-filter-pills" style="margin-bottom:10px">
       <span class="pill ${listFilter==='alle'?'active':''}" data-val="alle">Alles</span>
@@ -1113,9 +1160,7 @@ function renderList(){
     ${currentUser.rol !== 'admin' ? `<div class="queue-note" style="margin-bottom:16px;text-align:left">Je ziet hier de planning tot en met de komende week. Voor de volledige planning: vraag de admin.</div>` : ''}
   `;
   let visible = listFilter === 'mij'
-    ? deliveries.filter(d =>
-        (d.toegewezenAan && d.toegewezenAan.id === currentUser.id) ||
-        (d.toegewezenAanAfhaling && d.toegewezenAanAfhaling.id === currentUser.id))
+    ? deliveries.filter(d => isAssignedToMe(d.toegewezenAan) || isAssignedToMe(d.toegewezenAanAfhaling))
     : deliveries;
 
   if(currentUser.rol !== 'admin'){
@@ -1127,13 +1172,13 @@ function renderList(){
   }
 
   if(deliveries.length === 0){
-    return `<div class="empty">
+    return myVehicleWidget + `<div class="empty">
       <div class="big">Nog geen leveringen</div>
       Voeg een levering toe via "Nieuw" onderaan.
     </div>`;
   }
   if(visible.length === 0){
-    return filterBar + `<div class="empty"><div class="big">Niets gevonden</div>Bekijk "Alles" of vraag de admin naar de volledige planning.</div>`;
+    return myVehicleWidget + filterBar + `<div class="empty"><div class="big">Niets gevonden</div>Bekijk "Alles" of vraag de admin naar de volledige planning.</div>`;
   }
 
   renderedSections = {};
@@ -1144,7 +1189,7 @@ function renderList(){
     groups[key].push(d);
   });
 
-  let html = filterBar;
+  let html = myVehicleWidget + filterBar;
   let anyDayShown = false;
   Object.keys(groups).sort().forEach(dateKey=>{
     const items = groups[dateKey];
@@ -1256,6 +1301,22 @@ function bindListEvents(){
         typeFilter = p.dataset.val;
         render();
       });
+    });
+  }
+  const myVehicleSelect = document.getElementById('my-vehicle-select');
+  if(myVehicleSelect){
+    myVehicleSelect.addEventListener('change', async (e)=>{
+      const teamId = e.target.value ? parseInt(e.target.value,10) : null;
+      const prev = [...myTeamIds];
+      myTeamIds = teamId ? [teamId] : [];
+      try{
+        await apiFetch('/api/my-team', { method:'PUT', body: JSON.stringify({ teamId }) });
+        showToast(teamId ? 'Je zit nu in ' + teamsData.find(t=>t.id===teamId).naam : 'Voertuig gewist');
+        render();
+      }catch(err){
+        myTeamIds = prev;
+        showToast(err.message);
+      }
     });
   }
 }
@@ -1406,24 +1467,26 @@ function renderDetail(d){
   ${currentUser.rol === 'admin' ? `
   <div class="section" style="padding:12px 16px">
     <div class="field" style="margin-bottom:10px">
-      <label>Chauffeur — levering</label>
+      <label>Chauffeur/team — levering</label>
       <select id="assign-select">
         <option value="">Niet toegewezen — alle chauffeurs</option>
-        ${assignableUsers.map(u=>`<option value="${u.id}" ${d.toegewezenAan && d.toegewezenAan.id===u.id ? 'selected':''}>${escapeHtml(u.naam)}</option>`).join('')}
+        ${teamsData.length ? `<optgroup label="Voertuigen">${teamsData.map(t=>`<option value="team:${t.id}" ${d.toegewezenAan && d.toegewezenAan.type==='team' && d.toegewezenAan.id===t.id ? 'selected':''}>👥 ${escapeHtml(t.naam)}</option>`).join('')}</optgroup>` : ''}
+        <optgroup label="Individueel">${assignableUsers.map(u=>`<option value="user:${u.id}" ${d.toegewezenAan && d.toegewezenAan.type!=='team' && d.toegewezenAan.id===u.id ? 'selected':''}>${escapeHtml(u.naam)}</option>`).join('')}</optgroup>
       </select>
     </div>
     <div class="field" style="margin-bottom:0">
-      <label>Chauffeur — afhaling</label>
+      <label>Chauffeur/team — afhaling</label>
       <select id="assign-select-afhaling">
         <option value="">Niet toegewezen — alle chauffeurs</option>
-        ${assignableUsers.map(u=>`<option value="${u.id}" ${d.toegewezenAanAfhaling && d.toegewezenAanAfhaling.id===u.id ? 'selected':''}>${escapeHtml(u.naam)}</option>`).join('')}
+        ${teamsData.length ? `<optgroup label="Voertuigen">${teamsData.map(t=>`<option value="team:${t.id}" ${d.toegewezenAanAfhaling && d.toegewezenAanAfhaling.type==='team' && d.toegewezenAanAfhaling.id===t.id ? 'selected':''}>👥 ${escapeHtml(t.naam)}</option>`).join('')}</optgroup>` : ''}
+        <optgroup label="Individueel">${assignableUsers.map(u=>`<option value="user:${u.id}" ${d.toegewezenAanAfhaling && d.toegewezenAanAfhaling.type!=='team' && d.toegewezenAanAfhaling.id===u.id ? 'selected':''}>${escapeHtml(u.naam)}</option>`).join('')}</optgroup>
       </select>
     </div>
   </div>
   ` : `
   <div class="queue-note" style="margin-bottom:14px;text-align:left">
-    Levering: ${d.toegewezenAan ? (d.toegewezenAan.id===currentUser.id ? '✓ aan jou toegewezen.' : 'toegewezen aan ' + escapeHtml(d.toegewezenAan.naam) + '.') : 'open voor alle chauffeurs.'}<br>
-    Afhaling: ${d.toegewezenAanAfhaling ? (d.toegewezenAanAfhaling.id===currentUser.id ? '✓ aan jou toegewezen.' : 'toegewezen aan ' + escapeHtml(d.toegewezenAanAfhaling.naam) + '.') : 'open voor alle chauffeurs.'}
+    Levering: ${d.toegewezenAan ? (isAssignedToMe(d.toegewezenAan) ? '✓ aan jou/je team toegewezen.' : 'toegewezen aan ' + (d.toegewezenAan.type==='team'?'team ':'') + escapeHtml(d.toegewezenAan.naam) + '.') : 'open voor alle chauffeurs.'}<br>
+    Afhaling: ${d.toegewezenAanAfhaling ? (isAssignedToMe(d.toegewezenAanAfhaling) ? '✓ aan jou/je team toegewezen.' : 'toegewezen aan ' + (d.toegewezenAanAfhaling.type==='team'?'team ':'') + escapeHtml(d.toegewezenAanAfhaling.naam) + '.') : 'open voor alle chauffeurs.'}
   </div>
   `}
 
@@ -1658,14 +1721,24 @@ function bindDetailEvents(d){
     catch(err){ d.status = prev; showToast(err.message); }
   });
 
+  function parseAssignValue(val){
+    if(!val) return null;
+    const [type, idStr] = val.split(':');
+    const id = parseInt(idStr,10);
+    if(type === 'team'){
+      const team = teamsData.find(t => t.id === id);
+      return team ? { id: team.id, naam: team.naam, type: 'team' } : null;
+    }
+    const user = assignableUsers.find(u => u.id === id);
+    return user ? { id: user.id, naam: user.naam } : null;
+  }
   const assignSelect = document.getElementById('assign-select');
   if(assignSelect){
     assignSelect.addEventListener('change', async (e)=>{
       const prev = d.toegewezenAan;
-      const uid = e.target.value;
-      const user = assignableUsers.find(u => String(u.id) === uid);
-      d.toegewezenAan = user ? { id: user.id, naam: user.naam } : null;
-      try{ await saveDeliveries(d); showToast(user ? 'Chauffeur levering: ' + user.naam : 'Levering niet meer toegewezen'); }
+      const gekozen = parseAssignValue(e.target.value);
+      d.toegewezenAan = gekozen;
+      try{ await saveDeliveries(d); showToast(gekozen ? 'Levering: ' + gekozen.naam : 'Levering niet meer toegewezen'); }
       catch(err){ d.toegewezenAan = prev; showToast(err.message); }
     });
   }
@@ -1673,10 +1746,9 @@ function bindDetailEvents(d){
   if(assignSelectAfhaling){
     assignSelectAfhaling.addEventListener('change', async (e)=>{
       const prev = d.toegewezenAanAfhaling;
-      const uid = e.target.value;
-      const user = assignableUsers.find(u => String(u.id) === uid);
-      d.toegewezenAanAfhaling = user ? { id: user.id, naam: user.naam } : null;
-      try{ await saveDeliveries(d); showToast(user ? 'Chauffeur afhaling: ' + user.naam : 'Afhaling niet meer toegewezen'); }
+      const gekozen = parseAssignValue(e.target.value);
+      d.toegewezenAanAfhaling = gekozen;
+      try{ await saveDeliveries(d); showToast(gekozen ? 'Afhaling: ' + gekozen.naam : 'Afhaling niet meer toegewezen'); }
       catch(err){ d.toegewezenAanAfhaling = prev; showToast(err.message); }
     });
   }
@@ -2215,6 +2287,7 @@ function showAuthScreen(){
 }
 let assignableUsers = [];
 let appSettings = {};
+let myTeamIds = [];
 async function showApp(){
   document.getElementById('authScreen').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
@@ -2224,6 +2297,8 @@ async function showApp(){
   } else {
     startLocationSharing();
   }
+  try{ teamsData = await apiFetch('/api/teams'); }catch(e){ teamsData = []; }
+  try{ const myTeams = await apiFetch('/api/my-teams'); myTeamIds = myTeams.map(t=>t.id); }catch(e){ myTeamIds = []; }
   try{ appSettings = await apiFetch('/api/settings'); }catch(e){ appSettings = {}; }
   setupPushNotifications();
   await loadDeliveries();
