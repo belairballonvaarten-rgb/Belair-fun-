@@ -820,6 +820,40 @@ function renderTeam(){
     </div>
     <button class="btn small secondary" id="save-settings-btn">Opslaan</button>
   </div>
+  <div class="section">
+    <h3>Materiaal-info</h3>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">
+      Vaste materiaal-info per product — verschijnt automatisch op de laadlijst en in het totaaloverzicht onderaan, telkens dit product in een boeking voorkomt. De naam moet exact overeenkomen met hoe het product in de boekingen genoemd wordt. Pinnen gelden voor "Op gras", zandzakken + valmatten voor "Harde ondergrond".
+    </div>
+    <input type="file" accept=".xlsx" id="product-import-file" style="display:none">
+    <button class="btn secondary" id="product-import-btn" style="margin-bottom:10px">Excel-bestand importeren</button>
+    <div id="product-import-result" style="margin-bottom:14px;font-size:13px"></div>
+    <div id="producten-list" style="margin-bottom:14px">Laden...</div>
+    <div class="field"><label>Productnaam</label><input type="text" id="product-naam" placeholder="Bv. Springkasteel Draak XL"></div>
+    <div class="field">
+      <label>Motor type</label>
+      <select id="product-motor-type">
+        <option value="">Geen</option>
+        <option value="Standaard">Standaard</option>
+        <option value="Zware motor">Zware motor</option>
+        <option value="Gele motor">Gele motor</option>
+      </select>
+    </div>
+    <div class="two-col">
+      <div class="field"><label>Aantal motors</label><input type="number" min="0" id="product-aantal-motors"></div>
+      <div class="field"><label>Verlengkabel standaard</label><input type="number" min="0" id="product-kabel-standaard"></div>
+    </div>
+    <div class="two-col">
+      <div class="field"><label>Verlengkabel dubbel</label><input type="number" min="0" id="product-kabel-dubbel"></div>
+      <div class="field"><label>Pinnen (op gras)</label><input type="number" min="0" id="product-pinnen"></div>
+    </div>
+    <div class="two-col">
+      <div class="field"><label>Zandzakken (harde ondergrond)</label><input type="number" min="0" id="product-zandzakken"></div>
+      <div class="field"><label>Valmatten (harde ondergrond)</label><input type="number" min="0" id="product-valmatten"></div>
+    </div>
+    <div class="field"><label>Overige benodigdheden</label><input type="text" id="product-overige" placeholder="Bv. Ballen + 2 stokken"></div>
+    <button class="btn small secondary" id="product-add-btn">Opslaan</button>
+  </div>
   `;
 }
 function miniRow(d, typeLabel){
@@ -867,12 +901,148 @@ function renderPerVehicle(){
       <div style="font-size:11.5px;color:var(--text-dim);margin:-4px 0 8px">Bemanning: ${bemanning}</div>
       ${leveringen.length ? `<div class="section-label te-leveren-label">Leveringen</div>${leveringen.map(d=>miniRow(d,'Levering')).join('')}` : ''}
       ${afhalingen.length ? `<div class="section-label op-te-halen-label">Afhalingen</div>${afhalingen.map(d=>miniRow(d,'Afhaling')).join('')}` : ''}
+      ${leveringen.length ? `<button class="btn small secondary" style="margin-top:10px" data-laadlijst="${t.id}">📄 Laadlijst PDF (${leveringen.length} leveringen)</button>` : ''}
     </details>`;
   }).filter(Boolean);
   if(blocks.length === 0){
     return `<div class="queue-note" style="text-align:left">Geen enkel voertuig heeft die dag iets gepland.</div>`;
   }
   return blocks.join('');
+}
+function materiaalLabelVoorItem(naam, ondergrondNorm){
+  const p = findProduct(naam);
+  if(!p) return null;
+  const parts = [];
+  if(p.motorType) parts.push(`${p.aantalMotors||1}x ${p.motorType}`);
+  const kabels = (p.verlengkabelStandaard||0) + (p.verlengkabelDubbel||0);
+  if(p.verlengkabelStandaard) parts.push(`${p.verlengkabelStandaard} kabel${p.verlengkabelStandaard>1?'s':''} standaard`);
+  if(p.verlengkabelDubbel) parts.push(`${p.verlengkabelDubbel} kabel${p.verlengkabelDubbel>1?'s':''} dubbel`);
+  if(ondergrondNorm === 'Op gras'){
+    if(p.pinnen) parts.push(`${p.pinnen} pinnen`);
+  } else if(ondergrondNorm === 'Harde ondergrond'){
+    if(p.zandzakken) parts.push(`${p.zandzakken} zandzakken`);
+    if(p.valmatten) parts.push(`${p.valmatten} valmatten`);
+  } else {
+    // ondergrond onbekend: toon beide mogelijkheden
+    if(p.pinnen) parts.push(`${p.pinnen} pinnen (gras)`);
+    if(p.zandzakken || p.valmatten) parts.push(`${p.zandzakken||0} zandzakken + ${p.valmatten||0} valmatten (hard)`);
+  }
+  if(p.overige) parts.push(p.overige);
+  return parts.length ? parts.join(', ') : null;
+}
+async function generateLaadlijstPdf(teamId, dateStr){
+  const team = teamsData.find(t => t.id === teamId);
+  const leveringen = deliveries.filter(d => d.toegewezenAan && d.toegewezenAan.type==='team' && d.toegewezenAan.id===teamId && d.datum === dateStr)
+    .sort((a,b)=> sortKeyFor(a,'tijdslot') - sortKeyFor(b,'tijdslot'))
+    .reverse(); // laatste levering van de dag = eerst inladen
+
+  if(!window.jspdf){ showToast('PDF-bibliotheek nog aan het laden, probeer opnieuw'); return; }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const marginL = 16;
+  let y = 18;
+  const pageH = doc.internal.pageSize.getHeight();
+  const pageW = doc.internal.pageSize.getWidth();
+  function ensureSpace(h){ if(y + h > pageH - 16){ doc.addPage(); y = 18; } }
+
+  doc.setFont('helvetica','bold'); doc.setFontSize(18); doc.setTextColor(30,30,30);
+  doc.text('Belair-Fun', marginL, y); y += 7;
+  doc.setFontSize(13); doc.setTextColor(90,90,90);
+  doc.text('Laadlijst — ' + (team ? team.naam : 'Voertuig') + ' — ' + fmtDate(dateStr), marginL, y); y += 4;
+  doc.setDrawColor(210,210,210); doc.line(marginL, y, pageW-marginL, y); y += 6;
+  doc.setFontSize(9.5); doc.setTextColor(120,120,120);
+  doc.text('Laad van boven naar onder: nummer 1 eerst inladen (= laatste levering van de dag).', marginL, y); y += 8;
+  doc.setTextColor(30,30,30);
+
+  // Totalen die we onderaan gaan tonen
+  const motorTotalen = {}; // type -> aantal
+  let kabelStandaardTotaal = 0, kabelDubbelTotaal = 0;
+  let pinnenTotaal = 0, zandzakkenTotaal = 0, valmattenTotaal = 0;
+  const overigeTotalen = {}; // omschrijving -> aantal
+
+  leveringen.forEach((d, i) => {
+    const ondergrondNorm = normalizeOndergrond(d.ondergrond);
+    ensureSpace(20);
+    doc.setFont('helvetica','bold'); doc.setFontSize(12); doc.setTextColor(232,99,30);
+    doc.text(`${i+1}. ${d.klant} — ${d.tijdslot || '?'}`, marginL, y); y += 6;
+    doc.setDrawColor(232,99,30); doc.setLineWidth(0.3); doc.line(marginL, y-4.5, pageW-marginL, y-4.5);
+    doc.setTextColor(30,30,30);
+
+    doc.setFont('helvetica','normal'); doc.setFontSize(10);
+    const adresWrapped = doc.splitTextToSize(d.adres || 'Geen adres', pageW - marginL*2);
+    ensureSpace(adresWrapped.length*5);
+    doc.text(adresWrapped, marginL, y); y += adresWrapped.length*5;
+    doc.setTextColor(90,90,90); doc.setFontSize(9);
+    doc.text('Ondergrond: ' + (ondergrondNorm || 'onbekend'), marginL, y); y += 6;
+    doc.setTextColor(30,30,30);
+
+    const agg = aggregateArtikelen(d.artikelen);
+    agg.forEach(item => {
+      const materiaalLabel = materiaalLabelVoorItem(item.naam, ondergrondNorm);
+      const label = (item.aantal > 1 ? `${item.aantal}x ` : '') + item.naam + (materiaalLabel ? '  —  ' + materiaalLabel : '');
+      const wrapped = doc.splitTextToSize('• ' + label, pageW - marginL*2 - 4);
+      ensureSpace(wrapped.length*5.2);
+      doc.setFont('helvetica','normal'); doc.setFontSize(10);
+      doc.text(wrapped, marginL+2, y);
+      y += wrapped.length*5.2;
+
+      // Tel mee voor het totaaloverzicht (per stuk van dit item, x aantal keer besteld)
+      const p = findProduct(item.naam);
+      if(p){
+        const factor = item.aantal;
+        if(p.motorType) motorTotalen[p.motorType] = (motorTotalen[p.motorType]||0) + (p.aantalMotors||1)*factor;
+        kabelStandaardTotaal += (p.verlengkabelStandaard||0)*factor;
+        kabelDubbelTotaal += (p.verlengkabelDubbel||0)*factor;
+        if(ondergrondNorm === 'Harde ondergrond'){
+          zandzakkenTotaal += (p.zandzakken||0)*factor;
+          valmattenTotaal += (p.valmatten||0)*factor;
+        } else {
+          pinnenTotaal += (p.pinnen||0)*factor;
+        }
+        if(p.overige){
+          overigeTotalen[p.overige] = (overigeTotalen[p.overige]||0) + factor;
+        }
+      }
+    });
+    y += 4;
+  });
+
+  // Totaaloverzicht
+  ensureSpace(30);
+  doc.setDrawColor(210,210,210); doc.line(marginL, y, pageW-marginL, y); y += 8;
+  doc.setFont('helvetica','bold'); doc.setFontSize(13); doc.setTextColor(232,99,30);
+  doc.text('Totaal benodigd voor dit voertuig', marginL, y); y += 7;
+  doc.setTextColor(30,30,30); doc.setFont('helvetica','normal'); doc.setFontSize(10.5);
+
+  function totaalLijn(label, aantal){
+    if(!aantal) return;
+    ensureSpace(6);
+    doc.text(`• ${label}: ${aantal}`, marginL, y); y += 6;
+  }
+  Object.keys(motorTotalen).forEach(type => totaalLijn(type, motorTotalen[type]));
+  totaalLijn('Verlengkabels standaard', kabelStandaardTotaal);
+  totaalLijn('Verlengkabels dubbel', kabelDubbelTotaal);
+  totaalLijn('Pinnen (op gras)', pinnenTotaal);
+  totaalLijn('Zandzakken (harde ondergrond)', zandzakkenTotaal);
+  totaalLijn('Valmatten (harde ondergrond)', valmattenTotaal);
+  Object.keys(overigeTotalen).forEach(naam => totaalLijn(naam, overigeTotalen[naam]));
+
+  ensureSpace(16);
+  y += 4;
+  doc.setDrawColor(210,210,210); doc.line(marginL, y, pageW-marginL, y); y += 6;
+  doc.setFontSize(9); doc.setTextColor(140,140,140);
+  doc.text('Gegenereerd op ' + new Date().toLocaleString('nl-BE', { hour12:false }), marginL, y);
+
+  const fileName = 'laadlijst-' + (team ? team.naam : 'voertuig').replace(/[^a-z0-9]+/gi,'-').toLowerCase() + '-' + dateStr + '.pdf';
+  try{
+    const blob = doc.output('blob');
+    const file = new File([blob], fileName, { type: 'application/pdf' });
+    if(navigator.canShare && navigator.canShare({ files: [file] })){
+      await navigator.share({ files: [file], title: 'Laadlijst ' + (team?team.naam:''), text: fileName });
+      return;
+    }
+  }catch(err){ /* val terug op downloaden */ }
+  doc.save(fileName);
 }
 function bindAssignmentOverviewEvents(){
   document.querySelectorAll('#unassigned-list .mini-row, #per-driver-list .mini-row').forEach(row=>{
@@ -888,6 +1058,18 @@ function bindAssignmentOverviewEvents(){
       bindAssignmentOverviewEvents();
     });
   }
+  document.querySelectorAll('[data-laadlijst]').forEach(btn=>{
+    btn.addEventListener('click', async (e)=>{
+      e.preventDefault();
+      btn.disabled = true;
+      const orig = btn.textContent;
+      btn.textContent = 'Bezig...';
+      try{ await generateLaadlijstPdf(parseInt(btn.dataset.laadlijst,10), perDriverDate); }
+      catch(err){ showToast(err.message); }
+      btn.disabled = false;
+      btn.textContent = orig;
+    });
+  });
 }
 async function bindTeamEvents(){
   document.getElementById('save-settings-btn').addEventListener('click', async ()=>{
@@ -940,15 +1122,109 @@ async function bindTeamEvents(){
       showToast(err.message);
     }
   });
+  document.getElementById('product-add-btn').addEventListener('click', async ()=>{
+    const naam = document.getElementById('product-naam').value.trim();
+    if(!naam){ showToast('Geef een productnaam in'); return; }
+    const val = id => document.getElementById(id).value;
+    try{
+      await apiFetch('/api/producten', { method:'POST', body: JSON.stringify({
+        naam,
+        motorType: val('product-motor-type'),
+        aantalMotors: val('product-aantal-motors'),
+        verlengkabelStandaard: val('product-kabel-standaard'),
+        verlengkabelDubbel: val('product-kabel-dubbel'),
+        pinnen: val('product-pinnen'),
+        zandzakken: val('product-zandzakken'),
+        valmatten: val('product-valmatten'),
+        overige: val('product-overige')
+      }) });
+      showToast('Materiaal-info opgeslagen');
+      ['product-naam','product-aantal-motors','product-kabel-standaard','product-kabel-dubbel','product-pinnen','product-zandzakken','product-valmatten','product-overige'].forEach(id=>{ document.getElementById(id).value=''; });
+      document.getElementById('product-motor-type').value = '';
+      await loadProductenData();
+    }catch(err){ showToast(err.message); }
+  });
+  document.getElementById('product-import-btn').addEventListener('click', ()=> document.getElementById('product-import-file').click());
+  document.getElementById('product-import-file').addEventListener('change', async (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    const resultEl = document.getElementById('product-import-result');
+    resultEl.textContent = 'Bezig met importeren...';
+    try{
+      const fileBase64 = await new Promise((resolve, reject)=>{
+        const reader = new FileReader();
+        reader.onload = ()=> resolve(reader.result.split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const r = await apiFetch('/api/producten/import', { method:'POST', body: JSON.stringify({ fileBase64 }) });
+      let msg = r.imported + ' product(en) geïmporteerd/bijgewerkt.';
+      if(r.skipped && r.skipped.length) msg += ' ' + r.skipped.length + ' rij(en) overgeslagen.';
+      resultEl.textContent = msg;
+      showToast('Import voltooid');
+      await loadProductenData();
+    }catch(err){ resultEl.textContent = 'Import mislukt: ' + err.message; }
+    e.target.value = '';
+  });
   await refreshTeamList();
   await loadTeamsData();
+  await loadProductenData();
   document.getElementById('unassigned-list').innerHTML = renderUnassigned();
   document.getElementById('per-driver-list').innerHTML = renderPerVehicle();
   bindAssignmentOverviewEvents();
   await loadDriverLocations();
 }
+function productSummaryLine(p){
+  const parts = [];
+  if(p.motorType) parts.push((p.aantalMotors||1) + 'x ' + p.motorType);
+  if(p.verlengkabelStandaard) parts.push(p.verlengkabelStandaard + ' kabel(s) standaard');
+  if(p.verlengkabelDubbel) parts.push(p.verlengkabelDubbel + ' kabel(s) dubbel');
+  if(p.pinnen) parts.push(p.pinnen + ' pinnen (gras)');
+  if(p.zandzakken) parts.push(p.zandzakken + ' zandzakken (hard)');
+  if(p.valmatten) parts.push(p.valmatten + ' valmatten (hard)');
+  if(p.overige) parts.push(p.overige);
+  if(p.opmerking) parts.push(p.opmerking);
+  return parts.join(' · ') || 'Geen info';
+}
+async function loadProductenData(){
+  const el = document.getElementById('producten-list');
+  if(!el) return;
+  try{ productenData = await apiFetch('/api/producten'); }
+  catch(err){ el.textContent = err.message; return; }
+  if(productenData.length === 0){
+    el.innerHTML = `<div class="queue-note" style="text-align:left">Nog geen materiaal-info ingesteld.</div>`;
+    return;
+  }
+  el.innerHTML = productenData.map(p => `
+    <div class="team-row">
+      <div>
+        <div class="naam">${escapeHtml(p.naam)}</div>
+        <div class="rolbadge">${escapeHtml(productSummaryLine(p))}</div>
+      </div>
+      <span class="rm" data-product-naam="${escapeHtml(p.naam)}">Verwijderen</span>
+    </div>
+  `).join('');
+  el.querySelectorAll('.rm').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(!confirm('Deze materiaal-info verwijderen?')) return;
+      try{
+        await apiFetch('/api/producten', { method:'DELETE', body: JSON.stringify({ naam: btn.dataset.productNaam }) });
+        showToast('Verwijderd');
+        await loadProductenData();
+      }catch(err){ showToast(err.message); }
+    });
+  });
+}
 
 let teamsData = [];
+let productenData = [];
+function productOpmerking(naam){
+  const p = productenData.find(p => p.naam.toLowerCase() === naam.toLowerCase());
+  return p ? p.opmerking : '';
+}
+function findProduct(naam){
+  return productenData.find(p => p.naam.toLowerCase() === naam.toLowerCase()) || null;
+}
 async function loadTeamsData(){
   const teamsListEl = document.getElementById('teams-list');
   const checkboxesEl = document.getElementById('team-members-checkboxes');
@@ -2550,6 +2826,7 @@ async function showApp(){
   try{ teamsData = await apiFetch('/api/teams'); }catch(e){ teamsData = []; }
   try{ const myTeams = await apiFetch('/api/my-teams'); myTeamIds = myTeams.map(t=>t.id); }catch(e){ myTeamIds = []; }
   try{ appSettings = await apiFetch('/api/settings'); }catch(e){ appSettings = {}; }
+  try{ productenData = await apiFetch('/api/producten'); }catch(e){ productenData = []; }
   setupPushNotifications();
   await loadDeliveries();
   setView('list');
