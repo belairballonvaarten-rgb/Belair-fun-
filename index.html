@@ -3,10 +3,19 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>Belair-Fun — Leveringen</title>
+<title>Belair-Fun — Planning</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/favicon.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="theme-color" content="#1E2227">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Belair-Fun">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <style>
 :root{
   --bg:#1E2227;
@@ -18,6 +27,7 @@
   --accent:#E8631E;
   --accent-dim:#B94F19;
   --ok:#2F9E7A;
+  --wacht:#3B82F6;
   --warn:#D9A441;
   --danger:#D2564F;
   --radius:4px;
@@ -99,6 +109,56 @@ main{flex:1;padding:16px;}
 .tabbar svg{width:20px;height:20px;}
 
 /* Delivery list */
+.section-label{
+  font-family:'Barlow Condensed',sans-serif;
+  font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;
+  color:var(--text-dim);
+  margin:14px 2px 8px;
+  display:flex;align-items:center;gap:6px;
+}
+.section-label::before{content:'';width:8px;height:8px;border-radius:50%;display:inline-block;}
+.section-label.te-leveren-label::before{background:var(--accent);}
+.section-label.op-te-halen-label::before{background:var(--wacht);}
+.section-label.afgerond-label::before{background:var(--ok);}
+.next-pickup-banner{
+  background:rgba(59,130,246,0.12);
+  border:1px solid rgba(59,130,246,0.4);
+  color:var(--wacht);
+  font-size:13px;font-weight:600;
+  padding:10px 12px;border-radius:var(--radius);
+  margin-bottom:12px;
+}
+.reorder-row{display:flex;gap:6px;margin-top:8px;}
+.reorder-btn{
+  background:var(--panel-alt);border:1px solid var(--line);color:var(--text-dim);
+  width:30px;height:26px;border-radius:var(--radius);
+  display:flex;align-items:center;justify-content:center;font-size:11px;cursor:pointer;
+}
+.reorder-btn:active{background:var(--line);}
+.star-badge{color:var(--warn);font-size:14px;}
+.cal-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
+.cal-title{font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:18px;text-transform:capitalize;}
+.cal-nav{width:34px;height:34px;display:flex;align-items:center;justify-content:center;background:var(--panel-alt);border:1px solid var(--line);border-radius:var(--radius);cursor:pointer;font-size:20px;color:var(--text-dim);}
+.cal-nav:active{background:var(--line);}
+.cal-weekdays{display:grid;grid-template-columns:repeat(7,1fr);text-align:center;font-size:11px;color:var(--text-dim);margin-bottom:6px;}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;}
+.cal-cell{aspect-ratio:1;display:flex;align-items:center;justify-content:center;border-radius:var(--radius);font-size:13px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-weight:600;}
+.cal-cell.cal-empty{cursor:default;background:none;}
+.cal-cell.cal-free{background:rgba(47,158,122,0.16);color:var(--ok);}
+.cal-cell.cal-active{background:rgba(210,86,79,0.28);color:#ff9a94;}
+.cal-cell.cal-today{text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:3px;}
+.cal-cell.cal-selected{box-shadow:inset 0 0 0 2px #fff;}
+.cal-legend{display:flex;align-items:center;font-size:11.5px;color:var(--text-dim);margin-top:12px;}
+.cal-dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:6px;}
+.cal-dot.cal-free{background:var(--ok);}
+.cal-dot.cal-active{background:#ff9a94;}
+.card-delete-btn{
+  color:var(--danger);font-size:15px;
+  width:26px;height:26px;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;
+}
+.brand-logo-img{max-height:30px;max-width:170px;display:block;object-fit:contain;}
 .day-group{margin-bottom:22px;}
 .day-group h2{
   font-size:16px;
@@ -115,10 +175,11 @@ main{flex:1;padding:16px;}
   padding:12px 14px;
   margin-bottom:10px;
   cursor:pointer;
+  position:relative;
 }
 .card.status-te-leveren{border-left-color:var(--accent);}
-.card.status-geplaatst{border-left-color:var(--warn);}
-.card.status-afgerond{border-left-color:var(--ok);}
+.card.status-geplaatst{border-left-color:var(--wacht);}
+.card.status-afgerond{border-left-color:var(--ok);opacity:0.72;}
 .card .row1{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;}
 .card .klant{font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:18px;}
 .card .tijd{font-size:13px;color:var(--text-dim);white-space:nowrap;}
@@ -134,7 +195,7 @@ main{flex:1;padding:16px;}
   letter-spacing:0.3px;
 }
 .badge.te-leveren{background:rgba(232,99,30,0.18);color:var(--accent);}
-.badge.geplaatst{background:rgba(217,164,65,0.18);color:var(--warn);}
+.badge.geplaatst{background:rgba(59,130,246,0.18);color:var(--wacht);}
 .badge.afgerond{background:rgba(47,158,122,0.18);color:var(--ok);}
 
 .card.card-mine{border-left-color:var(--accent);background:linear-gradient(90deg, rgba(232,99,30,0.08), var(--panel) 40%);}
@@ -174,6 +235,8 @@ button{font-family:'Inter',sans-serif;}
 .btn.secondary{background:var(--panel-alt);color:var(--text);border:1px solid var(--line);}
 .btn.ok{background:var(--ok);}
 .btn.ghost{background:none;color:var(--accent);padding:10px 4px;width:auto;}
+.btn.danger{background:none;border:1px solid var(--danger);color:var(--danger);}
+.btn.danger:active{background:rgba(210,86,79,0.12);}
 .btn.small{padding:9px 12px;font-size:13px;width:auto;}
 .btn:disabled{opacity:0.45;cursor:default;}
 
@@ -347,6 +410,20 @@ button{font-family:'Inter',sans-serif;}
   font-size:12.5px;color:var(--text-dim);
 }
 .user-chip .logout{color:var(--accent);cursor:pointer;font-weight:600;}
+.mini-row{padding:9px 0;border-bottom:1px solid var(--line);cursor:pointer;}
+.mini-row:last-child{border-bottom:none;}
+.mini-row-title{font-size:14px;}
+.mini-row-type{font-size:11px;color:var(--text-dim);margin-left:4px;}
+.mini-row-sub{font-size:12px;color:var(--text-dim);margin-top:2px;}
+.driver-block{border-bottom:1px solid var(--line);padding:10px 0;}
+.driver-block:last-child{border-bottom:none;}
+.driver-block summary{
+  font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:16px;
+  cursor:pointer;display:flex;align-items:center;justify-content:space-between;
+  list-style:none;
+}
+.driver-block summary::-webkit-details-marker{display:none;}
+.driver-count{font-family:'Inter',sans-serif;font-weight:400;font-size:12px;color:var(--text-dim);}
 .team-row{
   display:flex;justify-content:space-between;align-items:center;
   padding:11px 0;border-bottom:1px solid var(--line);
@@ -365,13 +442,31 @@ button{font-family:'Inter',sans-serif;}
   margin-bottom:14px;
   line-height:1.4;
 }
+
+/* Tablet en groter: gebruik meer van de beschikbare breedte */
+@media (min-width: 700px){
+  #app, .tabbar{ max-width:760px; }
+  main{ padding:22px 28px; }
+  .photos-grid{ grid-template-columns:repeat(4,1fr); }
+  #locations-map{ height:360px !important; }
+  .tabbar button{ font-size:16px; padding:14px 4px 12px; }
+  .card{ padding:16px 18px; }
+}
+@media (min-width: 1000px){
+  #app, .tabbar{ max-width:920px; }
+  .photos-grid{ grid-template-columns:repeat(6,1fr); }
+  #locations-map{ height:420px !important; }
+}
 </style>
 </head>
 <body>
 <div id="authScreen" style="display:none">
   <div class="auth-wrap">
-    <div class="brand" style="font-size:28px;margin-bottom:4px">Belair<span class="dot">·</span>Fun</div>
-    <div id="authSub" class="sub" style="margin-bottom:22px">Leveringen &amp; planning</div>
+    <div class="brand-wrap" style="margin-bottom:4px">
+      <img src="/logo.png" alt="Belair-Fun" class="brand-logo-img" onerror="this.style.display='none'; this.nextElementSibling.style.display='';">
+      <div class="brand" style="font-size:28px;display:none">Belair<span class="dot">·</span>Fun</div>
+    </div>
+    <div id="authSub" class="sub" style="margin-bottom:22px">Planning &amp; overzicht</div>
     <div id="authForm"></div>
   </div>
 </div>
@@ -379,8 +474,9 @@ button{font-family:'Inter',sans-serif;}
 <div id="app" style="display:none">
   <div class="topbar">
     <div>
-      <div class="brand">Belair<span class="dot">·</span>Fun</div>
-      <div class="sub" id="topbarSub">Leveringen</div>
+      <img src="/logo.png" alt="Belair-Fun" class="brand-logo-img" onerror="this.style.display='none'; this.nextElementSibling.style.display='';">
+      <div class="brand" style="display:none">Belair<span class="dot">·</span>Fun</div>
+      <div class="sub" id="topbarSub">Planning</div>
     </div>
     <div id="topbarAction"></div>
   </div>
@@ -388,7 +484,7 @@ button{font-family:'Inter',sans-serif;}
   <div class="tabbar">
     <button data-tab="list" class="tab-btn">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
-      Leveringen
+      Planning
     </button>
     <button data-tab="new" class="tab-btn">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
@@ -396,7 +492,7 @@ button{font-family:'Inter',sans-serif;}
     </button>
     <button data-tab="dossiers" class="tab-btn">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4zM4 9h16"/></svg>
-      Dossiers
+      Overzicht
     </button>
     <button data-tab="team" class="tab-btn" id="teamTabBtn" style="display:none">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
@@ -441,6 +537,7 @@ async function apiFetch(path, opts){
 }
 
 function doLogout(reload){
+  stopLocationSharing();
   authToken = null; currentUser = null;
   localStorage.removeItem('bf-token');
   if(reload !== false) showAuthScreen();
@@ -496,18 +593,27 @@ function escapeHtml(s){
   return (s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
+function normalizeOndergrond(v){
+  if(!v) return '';
+  const s = String(v).toLowerCase();
+  if(s.includes('hard')) return 'Harde ondergrond';
+  if(s.includes('gras') || s.includes('grass')) return 'Op gras';
+  return v;
+}
 function emptyDelivery(){
   return {
     id: uid(),
     klant: '', telefoon: '', email: '', adres: '', postcode: '', ondergrond: '',
     datum: todayISO(), tijdslot: '',
     afhaaldatum: '', afhaaltijd: '',
-    artikelen: '', bedrag: '',
+    artikelen: '', bedrag: '', boekingsnummer: '',
     status: 'te-leveren',
-    toegewezenAan: null, // { id, naam } of null = voor alle chauffeurs
+    toegewezenAan: null, // { id, naam } chauffeur voor levering, of null = voor alle chauffeurs
+    toegewezenAanAfhaling: null, // { id, naam } chauffeur voor afhaling, apart van levering
+    handmatigeVolgorde: null, // getal = manueel bepaalde positie in de planning
     plaatsing: {
       correctGeplaatst: false,
-      bevestiging: '', // pinnen | zandzakken | geen
+      bevestiging: '', // pinnen | zandzakken | verankering | geen
       valmatten: false,
       verlengkabel: false,
       aantalKabels: '',
@@ -521,19 +627,23 @@ function emptyDelivery(){
     afhaling: {
       valmattenTerug: false,
       kabelsTerug: false,
+      bevestigingTerug: false, // pinnen/zandzakken/verankering terug mee, afhankelijk van plaatsing.bevestiging
       natOfVuil: false,
       reinigingNodig: false,
       opmerkingen: '',
       tijdstip: '',
       bevestigd: false,
-      bevestigdOp: ''
+      bevestigdOp: '',
+      verzetAangevraagd: false, // afhaling lukte niet, verzetting naar andere dag aangevraagd
+      verzetNaarDatum: '', // voorgestelde nieuwe afhaaldatum
+      verzetReden: ''
     }
   };
 }
 function fmtDateTime(iso){
   if(!iso) return '';
   const d = new Date(iso);
-  return d.toLocaleDateString('nl-BE', { day:'numeric', month:'short' }) + ' om ' + d.toLocaleTimeString('nl-BE', { hour:'2-digit', minute:'2-digit' });
+  return d.toLocaleDateString('nl-BE', { day:'numeric', month:'short' }) + ' om ' + d.toLocaleTimeString('nl-BE', { hour:'2-digit', minute:'2-digit', hour12:false });
 }
 
 // ---------- Routing / render ----------
@@ -554,28 +664,40 @@ function render(){
   const logoutBtn = document.getElementById('logout-btn');
   if(logoutBtn) logoutBtn.addEventListener('click', ()=> doLogout());
 
-  if(view === 'list'){
-    sub.textContent = 'Leveringen';
-    main.innerHTML = renderList();
-    bindListEvents();
-  } else if(view === 'new'){
-    sub.textContent = 'Nieuwe levering';
-    main.innerHTML = renderNewForm();
-    bindNewFormEvents();
-  } else if(view === 'dossiers'){
-    sub.textContent = 'Dossiers';
-    main.innerHTML = renderDossiers();
-    bindDossierEvents();
-  } else if(view === 'team'){
-    sub.textContent = 'Team';
-    main.innerHTML = renderTeam();
-    bindTeamEvents();
-  } else if(view === 'detail'){
-    const d = getDelivery(currentId);
-    if(!d){ setView('list'); return; }
-    sub.textContent = d.klant || 'Levering';
-    main.innerHTML = renderDetail(d);
-    bindDetailEvents(d);
+  try{
+    if(view === 'list'){
+      sub.textContent = 'Planning';
+      main.innerHTML = renderList();
+      bindListEvents();
+    } else if(view === 'new'){
+      sub.textContent = 'Nieuwe levering';
+      main.innerHTML = renderNewForm();
+      bindNewFormEvents();
+    } else if(view === 'dossiers'){
+      sub.textContent = 'Overzicht';
+      main.innerHTML = renderDossiers();
+      bindDossierEvents();
+    } else if(view === 'team'){
+      sub.textContent = 'Team';
+      main.innerHTML = renderTeam();
+      Promise.resolve(bindTeamEvents()).catch(err=>{
+        console.error('Fout bij laden van Team-gegevens:', err);
+        showToast('Fout bij laden Team: ' + err.message);
+      });
+    } else if(view === 'detail'){
+      const d = getDelivery(currentId);
+      if(!d){ setView('list'); return; }
+      sub.textContent = d.klant || 'Levering';
+      main.innerHTML = renderDetail(d);
+      bindDetailEvents(d);
+    }
+  }catch(err){
+    console.error('Render-fout bij view "' + view + '":', err);
+    main.innerHTML = `<div class="section" style="border-color:var(--danger)">
+      <h3 style="color:var(--danger)">Er ging iets mis bij het tonen van dit scherm</h3>
+      <div style="font-size:13px;color:var(--text-dim);margin-bottom:10px">Maak hier een screenshot van en stuur die door:</div>
+      <div style="font-family:monospace;font-size:11.5px;white-space:pre-wrap;background:var(--panel-alt);padding:10px;border-radius:var(--radius);color:var(--danger)">${escapeHtml(view + ': ' + (err && err.stack ? err.stack : String(err)))}</div>
+    </div>`;
   }
 }
 
@@ -583,6 +705,53 @@ function render(){
 let teamUsers = [];
 function renderTeam(){
   return `
+  <div class="section">
+    <h3>Per chauffeur</h3>
+    <div class="field" style="margin-bottom:14px">
+      <label>Dag bekijken</label>
+      <input type="date" id="per-driver-date" value="${perDriverDate}">
+    </div>
+    <div id="per-driver-list">Laden...</div>
+  </div>
+  <div class="section">
+    <h3>Locatie chauffeurs</h3>
+    <div style="font-size:12.5px;color:var(--text-dim);margin-bottom:10px;line-height:1.4">
+      Enkel zichtbaar terwijl een chauffeur de app effectief open en actief heeft staan — geen achtergrond-tracking.
+    </div>
+    <div id="locations-map" style="height:280px;border-radius:var(--radius);overflow:hidden;background:var(--panel-alt);"></div>
+    <div id="locations-list" style="margin-top:10px;font-size:12.5px;color:var(--text-dim)">Laden...</div>
+  </div>
+  <div class="section">
+    <h3>Nog toe te wijzen</h3>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">Voor de dag die je hierboven bij "Per chauffeur" hebt gekozen.</div>
+    <div id="unassigned-list">Laden...</div>
+  </div>
+  <div class="section">
+    <h3>Team</h3>
+    <div id="team-list">Laden...</div>
+  </div>
+  <div class="section">
+    <h3>Melding versturen</h3>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">Stuurt een push-melding naar het toestel van de gekozen persoon/team, enkel als je zelf op "Versturen" drukt.</div>
+    <div class="field">
+      <label>Naar</label>
+      <select id="notify-target">
+        <option value="">Kies een team of teamlid...</option>
+      </select>
+    </div>
+    <div class="field"><label>Titel</label><input type="text" id="notify-title" placeholder="Bv. Wijziging planning" value="Belair-Fun"></div>
+    <div class="field"><label>Bericht</label><textarea id="notify-message" placeholder="Bv. Afhaling is verplaatst naar morgen, gelieve contact op te nemen met kantoor"></textarea></div>
+    <button class="btn" id="notify-send-btn">Versturen</button>
+    <div id="notify-result" style="margin-top:10px;font-size:13px;color:var(--text-dim)"></div>
+  </div>
+  <div class="section">
+    <h3>Voertuigteams</h3>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">Groepeer bv. een chauffeur en begeleider(s) van hetzelfde voertuig, zodat je ze samen een melding kan sturen.</div>
+    <div id="teams-list" style="margin-bottom:14px">Laden...</div>
+    <div class="field"><label>Naam nieuw team</label><input type="text" id="team-naam" placeholder="Bv. Voertuig 1"></div>
+    <div class="field" id="team-members-field"><label>Leden</label><div id="team-members-checkboxes">Laden...</div></div>
+    <button class="btn small secondary" id="team-add-btn">Team toevoegen</button>
+  </div>
   <div class="section">
     <h3>Nieuw teamlid</h3>
     <div class="field"><label>Naam</label><input type="text" id="t-naam" placeholder="Bv. Kevin"></div>
@@ -598,12 +767,92 @@ function renderTeam(){
     <button class="btn" id="add-user-btn">Teamlid toevoegen</button>
   </div>
   <div class="section">
-    <h3>Team</h3>
-    <div id="team-list">Laden...</div>
+    <h3>Instellingen</h3>
+    <div class="field" style="margin-bottom:0">
+      <label>Google review-link</label>
+      <input type="text" id="s-google-review" value="${escapeHtml(appSettings.googleReviewUrl||'')}" placeholder="https://g.page/r/.../review">
+    </div>
+    <div style="font-size:12px;color:var(--text-dim);margin:8px 0 10px">
+      Vind je op je Google Bedrijfsprofiel via "Meer reviews krijgen" → link kopiëren.
+    </div>
+    <button class="btn small secondary" id="save-settings-btn">Opslaan</button>
   </div>
   `;
 }
+function miniRow(d, typeLabel){
+  const tijd = typeLabel === 'Levering' ? d.tijdslot : d.afhaaltijd;
+  const datum = typeLabel === 'Levering' ? d.datum : (d.afhaaldatum || d.datum);
+  return `<div class="mini-row" data-id="${d.id}">
+    <div class="mini-row-title">${escapeHtml(d.klant || 'Naamloos')} <span class="mini-row-type">${typeLabel}</span></div>
+    <div class="mini-row-sub">${fmtDate(datum)}${tijd ? ' · ' + escapeHtml(tijd) : ''} — ${escapeHtml(d.adres || '')}</div>
+    <span class="badge ${d.status}" style="margin-top:6px">${STATUS_LABEL[d.status]}</span>
+  </div>`;
+}
+let perDriverDate = todayISO();
+function renderUnassigned(){
+  const openLeveringen = deliveries.filter(d => d.status === 'te-leveren' && !d.toegewezenAan && d.datum === perDriverDate)
+    .sort((a,b)=> sortKeyFor(a,'tijdslot') - sortKeyFor(b,'tijdslot'));
+  const openAfhalingen = deliveries.filter(d => d.status !== 'afgerond' && !d.toegewezenAanAfhaling && (d.afhaaldatum || d.datum) === perDriverDate)
+    .sort((a,b)=> sortKeyFor(a,'afhaaltijd') - sortKeyFor(b,'afhaaltijd'));
+  if(openLeveringen.length === 0 && openAfhalingen.length === 0){
+    return `<div class="queue-note" style="text-align:left">✓ Niets onbeheerd op deze dag.</div>`;
+  }
+  let html = '';
+  if(openLeveringen.length){
+    html += `<div class="section-label te-leveren-label" style="margin-top:0">Leveringen zonder chauffeur (${openLeveringen.length})</div>`;
+    html += openLeveringen.map(d => miniRow(d, 'Levering')).join('');
+  }
+  if(openAfhalingen.length){
+    html += `<div class="section-label op-te-halen-label">Afhalingen zonder chauffeur (${openAfhalingen.length})</div>`;
+    html += openAfhalingen.map(d => miniRow(d, 'Afhaling')).join('');
+  }
+  return html;
+}
+function renderPerDriver(){
+  if(teamUsers.length === 0) return 'Nog geen teamleden.';
+  const blocks = teamUsers.map(u=>{
+    const leveringen = deliveries.filter(d => d.toegewezenAan && d.toegewezenAan.id === u.id && d.datum === perDriverDate)
+      .sort((a,b)=> sortKeyFor(a,'tijdslot') - sortKeyFor(b,'tijdslot'));
+    const afhalingen = deliveries.filter(d => d.toegewezenAanAfhaling && d.toegewezenAanAfhaling.id === u.id && (d.afhaaldatum || d.datum) === perDriverDate)
+      .sort((a,b)=> sortKeyFor(a,'afhaaltijd') - sortKeyFor(b,'afhaaltijd'));
+    const totaal = leveringen.length + afhalingen.length;
+    if(totaal === 0) return '';
+    const afgerond = leveringen.filter(d=>d.status==='afgerond').length + afhalingen.filter(d=>d.status==='afgerond').length;
+    return `<details class="driver-block" open>
+      <summary>${escapeHtml(u.naam)} <span class="driver-count">${afgerond}/${totaal} afgerond</span></summary>
+      ${leveringen.length ? `<div class="section-label te-leveren-label">Leveringen</div>${leveringen.map(d=>miniRow(d,'Levering')).join('')}` : ''}
+      ${afhalingen.length ? `<div class="section-label op-te-halen-label">Afhalingen</div>${afhalingen.map(d=>miniRow(d,'Afhaling')).join('')}` : ''}
+    </details>`;
+  }).filter(Boolean);
+  if(blocks.length === 0){
+    return `<div class="queue-note" style="text-align:left">Niemand heeft die dag iets gepland.</div>`;
+  }
+  return blocks.join('');
+}
+function bindAssignmentOverviewEvents(){
+  document.querySelectorAll('#unassigned-list .mini-row, #per-driver-list .mini-row').forEach(row=>{
+    row.addEventListener('click', ()=> setView('detail', row.dataset.id));
+  });
+  const perDriverDateInput = document.getElementById('per-driver-date');
+  if(perDriverDateInput){
+    perDriverDateInput.addEventListener('change', (e)=>{
+      perDriverDate = e.target.value || todayISO();
+      document.getElementById('per-driver-list').innerHTML = renderPerDriver();
+      const unassignedEl = document.getElementById('unassigned-list');
+      if(unassignedEl) unassignedEl.innerHTML = renderUnassigned();
+      bindAssignmentOverviewEvents();
+    });
+  }
+}
 async function bindTeamEvents(){
+  document.getElementById('save-settings-btn').addEventListener('click', async ()=>{
+    const url = document.getElementById('s-google-review').value.trim();
+    try{
+      await apiFetch('/api/settings', { method:'PUT', body: JSON.stringify({ googleReviewUrl: url }) });
+      appSettings.googleReviewUrl = url;
+      showToast('Instellingen opgeslagen');
+    }catch(err){ showToast(err.message); }
+  });
   document.getElementById('add-user-btn').addEventListener('click', async ()=>{
     const naam = document.getElementById('t-naam').value.trim();
     const username = document.getElementById('t-username').value.trim();
@@ -616,7 +865,142 @@ async function bindTeamEvents(){
       setView('team');
     }catch(err){ showToast(err.message); }
   });
+  document.getElementById('team-add-btn').addEventListener('click', async ()=>{
+    const naam = document.getElementById('team-naam').value.trim();
+    if(!naam){ showToast('Geef het team een naam'); return; }
+    const memberIds = Array.from(document.querySelectorAll('.team-member-cb:checked')).map(cb => parseInt(cb.value,10));
+    try{
+      await apiFetch('/api/teams', { method:'POST', body: JSON.stringify({ naam, memberIds }) });
+      showToast('Team toegevoegd');
+      document.getElementById('team-naam').value = '';
+      await loadTeamsData();
+    }catch(err){ showToast(err.message); }
+  });
+  document.getElementById('notify-send-btn').addEventListener('click', async ()=>{
+    const target = document.getElementById('notify-target').value;
+    const title = document.getElementById('notify-title').value.trim();
+    const message = document.getElementById('notify-message').value.trim();
+    const resultEl = document.getElementById('notify-result');
+    if(!target){ showToast('Kies eerst een team of teamlid'); return; }
+    if(!title || !message){ showToast('Vul titel en bericht in'); return; }
+    const [type, id] = target.split(':');
+    const body = type === 'team' ? { teamId: id, title, message } : { userId: id, title, message };
+    resultEl.textContent = 'Bezig met versturen...';
+    try{
+      const r = await apiFetch('/api/notify', { method:'POST', body: JSON.stringify(body) });
+      resultEl.textContent = `Verstuurd naar ${r.sent} toeste(l)len van de ${r.ontvangers} gekozen perso(o)n(en).` + (r.failed ? ` (${r.failed} niet bereikbaar — toestel had de app niet recent open staan)` : '');
+      showToast('Melding verstuurd');
+    }catch(err){
+      resultEl.textContent = err.message;
+      showToast(err.message);
+    }
+  });
   await refreshTeamList();
+  document.getElementById('unassigned-list').innerHTML = renderUnassigned();
+  document.getElementById('per-driver-list').innerHTML = renderPerDriver();
+  bindAssignmentOverviewEvents();
+  await loadDriverLocations();
+  await loadTeamsData();
+}
+
+let teamsData = [];
+async function loadTeamsData(){
+  const teamsListEl = document.getElementById('teams-list');
+  const checkboxesEl = document.getElementById('team-members-checkboxes');
+  const notifyTargetEl = document.getElementById('notify-target');
+  if(!teamsListEl) return;
+  try{ teamsData = await apiFetch('/api/teams'); }
+  catch(err){ teamsListEl.textContent = err.message; return; }
+
+  teamsListEl.innerHTML = teamsData.length === 0
+    ? `<div class="queue-note" style="text-align:left">Nog geen voertuigteams aangemaakt.</div>`
+    : teamsData.map(t => `
+      <div class="team-row">
+        <div>
+          <div class="naam">${escapeHtml(t.naam)}</div>
+          <div class="rolbadge">${t.leden.map(l=>escapeHtml(l.naam)).join(', ') || 'Geen leden'}</div>
+        </div>
+        <span class="rm" data-team-id="${t.id}">Verwijderen</span>
+      </div>
+    `).join('');
+  teamsListEl.querySelectorAll('.rm').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(!confirm('Dit voertuigteam verwijderen?')) return;
+      try{
+        await apiFetch('/api/teams/' + btn.dataset.teamId, { method:'DELETE' });
+        showToast('Team verwijderd');
+        await loadTeamsData();
+      }catch(err){ showToast(err.message); }
+    });
+  });
+
+  if(checkboxesEl){
+    checkboxesEl.innerHTML = assignableUsers.map(u => `
+      <label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:14px;cursor:pointer">
+        <input type="checkbox" value="${u.id}" class="team-member-cb"> ${escapeHtml(u.naam)}
+      </label>
+    `).join('') || '<div class="queue-note" style="text-align:left">Geen teamleden om te kiezen.</div>';
+  }
+
+  if(notifyTargetEl){
+    const teamOptions = teamsData.map(t => `<option value="team:${t.id}">👥 ${escapeHtml(t.naam)}</option>`).join('');
+    const userOptions = assignableUsers.map(u => `<option value="user:${u.id}">${escapeHtml(u.naam)}</option>`).join('');
+    notifyTargetEl.innerHTML = `<option value="">Kies een team of teamlid...</option>${teamOptions}${userOptions}`;
+  }
+}
+
+let locationsMap = null;
+let locationMarkers = [];
+function timeAgo(iso){
+  const diffMin = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if(diffMin < 1) return 'net nu';
+  if(diffMin < 60) return diffMin + ' min geleden';
+  const h = Math.round(diffMin/60);
+  return h + ' u geleden';
+}
+async function loadDriverLocations(){
+  const listEl = document.getElementById('locations-list');
+  const mapEl = document.getElementById('locations-map');
+  if(!listEl || !mapEl) return;
+  let locs;
+  try{ locs = await apiFetch('/api/locations'); }
+  catch(err){ listEl.textContent = err.message; return; }
+
+  try{
+    if(typeof L === 'undefined'){
+      mapEl.textContent = 'Kaart kon niet geladen worden (probeer de pagina te herladen).';
+    } else {
+      if(locationsMap){
+        locationsMap.remove();
+        locationsMap = null;
+      }
+      locationsMap = L.map('locations-map', { attributionControl: false }).setView([50.98, 4.05], 8);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(locationsMap);
+      locationMarkers = [];
+    }
+  }catch(err){
+    console.error('Kaart laden mislukt:', err);
+    mapEl.textContent = 'Kaart kon niet geladen worden.';
+  }
+
+  if(locs.length === 0){
+    listEl.textContent = 'Nog geen chauffeur heeft de app recent open gehad.';
+  } else {
+    listEl.innerHTML = locs.map(l => `<div>📍 ${escapeHtml(l.naam)} — ${timeAgo(l.updated_at)}</div>`).join('');
+    if(locationsMap){
+      try{
+        const bounds = [];
+        locs.forEach(l=>{
+          const marker = L.marker([l.lat, l.lng]).addTo(locationsMap)
+            .bindPopup(escapeHtml(l.naam) + '<br>' + timeAgo(l.updated_at));
+          locationMarkers.push(marker);
+          bounds.push([l.lat, l.lng]);
+        });
+        if(bounds.length) locationsMap.fitBounds(bounds, { padding: [30,30], maxZoom: 14 });
+      }catch(err){ console.error('Pinnen plaatsen mislukt:', err); }
+    }
+  }
+  setTimeout(()=> locationsMap && locationsMap.invalidateSize(), 100);
 }
 async function refreshTeamList(){
   const el = document.getElementById('team-list');
@@ -648,16 +1032,99 @@ async function refreshTeamList(){
 
 // ---------- LIST VIEW ----------
 let listFilter = 'alle'; // 'alle' | 'mij'
+let typeFilter = 'alle'; // 'alle' | 'leveringen' | 'afhalingen'
+let renderedSections = {}; // sectionKey -> geordende array van delivery-ids (voor omhoog/omlaag knoppen)
+
+function timeMinutes(str){
+  if(!str) return null;
+  const m = String(str).match(/(\d{1,2}):(\d{2})/);
+  if(!m) return null;
+  return parseInt(m[1],10)*60 + parseInt(m[2],10);
+}
+function sortKeyFor(d, timeField){
+  if(d.handmatigeVolgorde != null) return d.handmatigeVolgorde;
+  const mins = timeMinutes(d[timeField]);
+  return 100000 + (mins != null ? mins : 9999);
+}
+function primaryProductLabel(d){
+  const items = (d.artikelen||'').split(/[\n,+]/).map(s=>s.trim()).filter(Boolean);
+  if(items.length === 0) return d.klant || 'Naamloos';
+  return items[0] + (items.length > 1 ? ', ...' : '');
+}
+function cardHtml(d, extraClass){
+  const isAfhalingFase = (d.status === 'geplaatst' || d.status === 'afgerond');
+  const relevantAssign = isAfhalingFase ? d.toegewezenAanAfhaling : d.toegewezenAan;
+  const forMe = relevantAssign && relevantAssign.id === currentUser.id;
+  const assignLabel = forMe
+    ? `<span class="assign-badge mine">Voor jou</span>`
+    : relevantAssign
+      ? `<span class="assign-badge other">→ ${escapeHtml(relevantAssign.naam)}</span>`
+      : `<span class="assign-badge open">Alle chauffeurs</span>`;
+  const factuurStar = (currentUser.rol === 'admin' && d.betaling.status === 'factuur') ? `<span class="star-badge" title="Nog te factureren">★</span>` : '';
+  const verzetBadge = d.afhaling.verzetAangevraagd ? `<span class="assign-badge other" style="background:rgba(217,164,65,0.18);color:var(--warn)">🔁 Verzet aangevraagd</span>` : '';
+  const tijdWeergave = d.status === 'te-leveren' ? d.tijdslot : (d.status === 'geplaatst' ? d.afhaaltijd : d.tijdslot);
+  const deleteBtn = currentUser.rol === 'admin' ? `<span class="card-delete-btn" data-delete-id="${d.id}" data-delete-naam="${escapeHtml(d.klant||'')}" title="Verwijderen">✕</span>` : '';
+  return `<div class="card status-${d.status} ${forMe?'card-mine':''}" data-id="${d.id}">
+    <div class="row1">
+      <div>
+        <div class="klant">${escapeHtml(primaryProductLabel(d))} ${factuurStar}</div>
+        <div class="adres" style="margin-top:1px">${escapeHtml(d.klant || 'Naamloos')}</div>
+        <div class="adres" style="opacity:0.75">${escapeHtml(d.adres || 'Geen adres')}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="display:flex;align-items:center;gap:6px;justify-content:flex-end">
+          <div class="tijd">${escapeHtml(tijdWeergave || '')}</div>
+          ${deleteBtn}
+        </div>
+        ${d.ondergrond ? `<div style="font-size:11.5px;color:var(--text-dim);margin-top:4px">🌱 ${escapeHtml(normalizeOndergrond(d.ondergrond))}</div>` : ''}
+        ${d.bedrag ? `<div style="font-size:11.5px;color:var(--text-dim);margin-top:2px">💶 € ${escapeHtml(d.bedrag)}</div>` : ''}
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px">
+      <span class="badge ${d.status}" style="margin-top:0">${STATUS_LABEL[d.status]}</span>
+      ${assignLabel}
+      ${verzetBadge}
+    </div>
+    ${extraClass ? `<div class="reorder-row" data-section="${extraClass}">
+      <span class="reorder-btn" data-dir="up" data-id="${d.id}">▲</span>
+      <span class="reorder-btn" data-dir="down" data-id="${d.id}">▼</span>
+    </div>` : ''}
+  </div>`;
+}
+function relevantDateForItem(d){
+  return (d.status === 'geplaatst' || d.status === 'afgerond') ? (d.afhaaldatum || d.datum) : d.datum;
+}
+function weekCutoffISO(){
+  const d = new Date();
+  d.setDate(d.getDate() + 6);
+  return d.toISOString().slice(0,10);
+}
 function renderList(){
   const filterBar = `
-    <div class="pillgroup" id="list-filter-pills" style="margin-bottom:16px">
+    <div class="pillgroup" id="list-filter-pills" style="margin-bottom:10px">
       <span class="pill ${listFilter==='alle'?'active':''}" data-val="alle">Alles</span>
       <span class="pill ${listFilter==='mij'?'active':''}" data-val="mij">Voor mij</span>
     </div>
+    <div class="pillgroup" id="type-filter-pills" style="margin-bottom:16px">
+      <span class="pill ${typeFilter==='alle'?'active':''}" data-val="alle">Alles</span>
+      <span class="pill ${typeFilter==='leveringen'?'active':''}" data-val="leveringen">Leveringen</span>
+      <span class="pill ${typeFilter==='afhalingen'?'active':''}" data-val="afhalingen">Afhalingen</span>
+    </div>
+    ${currentUser.rol !== 'admin' ? `<div class="queue-note" style="margin-bottom:16px;text-align:left">Je ziet hier de planning tot en met de komende week. Voor de volledige planning: vraag de admin.</div>` : ''}
   `;
-  const visible = listFilter === 'mij'
-    ? deliveries.filter(d => d.toegewezenAan && d.toegewezenAan.id === currentUser.id)
+  let visible = listFilter === 'mij'
+    ? deliveries.filter(d =>
+        (d.toegewezenAan && d.toegewezenAan.id === currentUser.id) ||
+        (d.toegewezenAanAfhaling && d.toegewezenAanAfhaling.id === currentUser.id))
     : deliveries;
+
+  if(currentUser.rol !== 'admin'){
+    const cutoff = weekCutoffISO();
+    visible = visible.filter(d => {
+      const datum = relevantDateForItem(d);
+      return !datum || datum <= cutoff;
+    });
+  }
 
   if(deliveries.length === 0){
     return `<div class="empty">
@@ -666,52 +1133,127 @@ function renderList(){
     </div>`;
   }
   if(visible.length === 0){
-    return filterBar + `<div class="empty"><div class="big">Niets voor jou toegewezen</div>Bekijk "Alles" om de volledige planning te zien.</div>`;
+    return filterBar + `<div class="empty"><div class="big">Niets gevonden</div>Bekijk "Alles" of vraag de admin naar de volledige planning.</div>`;
   }
+
+  renderedSections = {};
   const groups = {};
-  const sorted = [...visible].sort((a,b)=> (a.datum||'').localeCompare(b.datum||''));
-  sorted.forEach(d=>{
-    const key = d.status === 'afgerond' ? (d.afhaaldatum || d.datum || 'Onbekend') : (d.datum || 'Onbekend');
+  visible.forEach(d=>{
+    const key = (d.status === 'geplaatst' || d.status === 'afgerond') ? (d.afhaaldatum || d.datum || 'Onbekend') : (d.datum || 'Onbekend');
     if(!groups[key]) groups[key] = [];
     groups[key].push(d);
   });
+
   let html = filterBar;
+  let anyDayShown = false;
   Object.keys(groups).sort().forEach(dateKey=>{
+    const items = groups[dateKey];
+    let teLeveren = items.filter(d => d.status === 'te-leveren').sort((a,b)=> sortKeyFor(a,'tijdslot') - sortKeyFor(b,'tijdslot'));
+    let opTeHalen = items.filter(d => d.status === 'geplaatst').sort((a,b)=> sortKeyFor(a,'afhaaltijd') - sortKeyFor(b,'afhaaltijd'));
+    let afgerond = items.filter(d => d.status === 'afgerond').sort((a,b)=> sortKeyFor(a,'afhaaltijd') - sortKeyFor(b,'afhaaltijd'));
+
+    if(typeFilter === 'leveringen'){ opTeHalen = []; afgerond = []; }
+    if(typeFilter === 'afhalingen'){ teLeveren = []; afgerond = []; }
+
+    if(teLeveren.length === 0 && opTeHalen.length === 0 && afgerond.length === 0) return;
+    anyDayShown = true;
+
+    const teLeverenKey = dateKey + '|te-leveren';
+    const opTeHalenKey = dateKey + '|geplaatst';
+    renderedSections[teLeverenKey] = teLeveren.map(d=>d.id);
+    renderedSections[opTeHalenKey] = opTeHalen.map(d=>d.id);
+
     html += `<div class="day-group"><h2>${dateKey===todayISO() ? 'Vandaag — ' : ''}${fmtDate(dateKey)}</h2>`;
-    groups[dateKey].forEach(d=>{
-      const forMe = d.toegewezenAan && d.toegewezenAan.id === currentUser.id;
-      const assignLabel = forMe
-        ? `<span class="assign-badge mine">Voor jou</span>`
-        : d.toegewezenAan
-          ? `<span class="assign-badge other">→ ${escapeHtml(d.toegewezenAan.naam)}</span>`
-          : `<span class="assign-badge open">Alle chauffeurs</span>`;
-      html += `<div class="card status-${d.status} ${forMe?'card-mine':''}" data-id="${d.id}">
-        <div class="row1">
-          <div>
-            <div class="klant">${escapeHtml(d.klant || 'Naamloos')}</div>
-            <div class="adres">${escapeHtml(d.adres || 'Geen adres')}</div>
-          </div>
-          <div class="tijd">${escapeHtml(d.tijdslot || '')}</div>
-        </div>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px">
-          <span class="badge ${d.status}" style="margin-top:0">${STATUS_LABEL[d.status]}</span>
-          ${assignLabel}
-        </div>
-      </div>`;
-    });
+
+    if(typeFilter !== 'leveringen' && teLeveren.length === 0 && opTeHalen.length > 0){
+      const eerste = opTeHalen[0];
+      html += `<div class="next-pickup-banner">🕐 Alle leveringen gebeurd — eerstvolgende afhaling: <b>${escapeHtml(eerste.afhaaltijd || '?')} bij ${escapeHtml(eerste.klant)}</b></div>`;
+    }
+
+    if(teLeveren.length){
+      html += `<div class="section-label te-leveren-label">Te leveren</div>`;
+      teLeveren.forEach(d => html += cardHtml(d, teLeverenKey));
+    }
+    if(opTeHalen.length){
+      html += `<div class="section-label op-te-halen-label">Op te halen</div>`;
+      opTeHalen.forEach(d => html += cardHtml(d, opTeHalenKey));
+    }
+    if(afgerond.length){
+      html += `<div class="section-label afgerond-label">Afgerond</div>`;
+      afgerond.forEach(d => html += cardHtml(d, ''));
+    }
     html += `</div>`;
   });
+  if(!anyDayShown){
+    html += `<div class="empty"><div class="big">Niets gevonden</div>Probeer een andere filtercombinatie.</div>`;
+  }
   return html;
+}
+async function requestDeleteDelivery(id, klant){
+  if(!confirm('Reservatie van ' + (klant||'deze klant') + ' definitief verwijderen? Dit kan niet ongedaan gemaakt worden.')) return false;
+  try{
+    await apiFetch('/api/deliveries/' + id, { method:'DELETE' });
+    const idx = deliveries.findIndex(x => x.id === id);
+    if(idx !== -1) deliveries.splice(idx,1);
+    persistedIds.delete(id);
+    showToast('Reservatie verwijderd');
+    return true;
+  }catch(err){
+    showToast(err.message);
+    return false;
+  }
+}
+function moveCard(sectionKey, id, dir){
+  const order = renderedSections[sectionKey];
+  if(!order) return;
+  const idx = order.indexOf(id);
+  const swapWith = dir === 'up' ? idx - 1 : idx + 1;
+  if(idx < 0 || swapWith < 0 || swapWith >= order.length) return;
+  [order[idx], order[swapWith]] = [order[swapWith], order[idx]];
+  const changed = [];
+  order.forEach((did, i)=>{
+    const d = getDelivery(did);
+    if(d && d.handmatigeVolgorde !== i){
+      d.handmatigeVolgorde = i;
+      changed.push(d);
+    }
+  });
+  render();
+  Promise.all(changed.map(d => saveDeliveries(d).catch(err=>showToast(err.message))));
 }
 function bindListEvents(){
   document.querySelectorAll('.card').forEach(c=>{
     c.addEventListener('click', ()=> setView('detail', c.dataset.id));
+  });
+  document.querySelectorAll('.card-delete-btn').forEach(btn=>{
+    btn.addEventListener('click', async (e)=>{
+      e.stopPropagation();
+      const deleted = await requestDeleteDelivery(btn.dataset.deleteId, btn.dataset.deleteNaam);
+      if(deleted) render();
+    });
+  });
+  document.querySelectorAll('.reorder-btn').forEach(btn=>{
+    btn.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      const sectionKey = btn.closest('.reorder-row').dataset.section;
+      if(!sectionKey) return;
+      moveCard(sectionKey, btn.dataset.id, btn.dataset.dir);
+    });
   });
   const filterPills = document.getElementById('list-filter-pills');
   if(filterPills){
     filterPills.querySelectorAll('.pill').forEach(p=>{
       p.addEventListener('click', ()=>{
         listFilter = p.dataset.val;
+        render();
+      });
+    });
+  }
+  const typePills = document.getElementById('type-filter-pills');
+  if(typePills){
+    typePills.querySelectorAll('.pill').forEach(p=>{
+      p.addEventListener('click', ()=>{
+        typeFilter = p.dataset.val;
         render();
       });
     });
@@ -726,6 +1268,7 @@ function renderNewForm(){
     <h3>Planning importeren</h3>
     <div style="font-size:12.5px;color:var(--text-dim);margin-bottom:10px;line-height:1.4">
       Upload een Excel-bestand (.xlsx) met de kolommen: Delivery Date, Drop Off, Collection Date, Collection, Customer Name, Mobile, Email, Delivery Address 1, Delivery Town, Delivery Postcode, Item, Balance, Surface.<br>
+      Heb je een boekingsnummer-kolom (bv. "Booking Number", "Boekingsnummer", "Reference")? Dan wordt een bestaande boeking automatisch bijgewerkt in plaats van dubbel aangemaakt bij een herimport.<br>
       Werk je in Numbers? Exporteer eerst via <b>Bestand → Exporteer naar → Excel</b>.
     </div>
     <input type="file" accept=".xlsx" id="import-file" style="display:none">
@@ -747,6 +1290,14 @@ function renderNewForm(){
       <div class="field"><label>Tijdslot</label><input type="text" id="f-tijdslot" placeholder="Bv. 09:00 - 10:00"></div>
     </div>
     <div class="field"><label>Artikelen</label><textarea id="f-artikelen" placeholder="Bv. Springkasteel Draak XL + suikerspinmachine"></textarea></div>
+    <div class="field">
+      <label>Ondergrond</label>
+      <select id="f-ondergrond">
+        <option value="">Onbekend</option>
+        <option value="Op gras">Op gras</option>
+        <option value="Harde ondergrond">Harde ondergrond</option>
+      </select>
+    </div>
   </div>
   <div class="section">
     <h3>Afhaling</h3>
@@ -775,7 +1326,9 @@ function bindNewFormEvents(){
           reader.readAsDataURL(file);
         });
         const r = await apiFetch('/api/import', { method:'POST', body: JSON.stringify({ fileBase64 }) });
-        let msg = r.imported + ' levering(en) geïmporteerd.';
+        let msg = r.imported + ' nieuwe levering(en) toegevoegd';
+        if(r.updated) msg += ', ' + r.updated + ' bestaande bijgewerkt (via boekingsnummer)';
+        msg += '.';
         if(r.skipped && r.skipped.length){
           msg += ' ' + r.skipped.length + ' rij(en) overgeslagen: ' + r.skipped.map(s=>'rij '+s.rij+' ('+s.reden+')').join(', ');
         }
@@ -803,6 +1356,8 @@ function bindNewFormEvents(){
     d.artikelen = document.getElementById('f-artikelen').value.trim();
     d.afhaaldatum = document.getElementById('f-afhaaldatum').value;
     d.afhaaltijd = document.getElementById('f-afhaaltijd').value;
+    d.ondergrond = document.getElementById('f-ondergrond').value;
+    if(d.ondergrond === 'Harde ondergrond') d.plaatsing.valmatten = true;
     d.plaatsing.tijdstip = d.afhaaltijd;
     deliveries.push(d);
     try{
@@ -835,7 +1390,7 @@ function renderDetail(d){
     <div class="adres">${escapeHtml(d.adres)}</div>
     <div class="meta">
       <span>📅 ${fmtDate(d.datum)} ${d.tijdslot ? '· ' + escapeHtml(d.tijdslot) : ''}</span>
-      ${d.telefoon ? `<span>📞 ${escapeHtml(d.telefoon)}</span>` : ''}
+      ${d.telefoon ? `<span>📞 <a href="tel:${escapeHtml(String(d.telefoon).replace(/[^\d+]/g,''))}" style="color:inherit;text-decoration:underline">${escapeHtml(d.telefoon)}</a></span>` : ''}
       ${d.email ? `<span>✉️ ${escapeHtml(d.email)}</span>` : ''}
     </div>
   </div>
@@ -849,31 +1404,63 @@ function renderDetail(d){
   </div>
 
   ${currentUser.rol === 'admin' ? `
-  <div class="statusbar-select">
-    <select id="assign-select">
-      <option value="">Niet toegewezen — alle chauffeurs</option>
-      ${assignableUsers.map(u=>`<option value="${u.id}" ${d.toegewezenAan && d.toegewezenAan.id===u.id ? 'selected':''}>${escapeHtml(u.naam)}</option>`).join('')}
-    </select>
+  <div class="section" style="padding:12px 16px">
+    <div class="field" style="margin-bottom:10px">
+      <label>Chauffeur — levering</label>
+      <select id="assign-select">
+        <option value="">Niet toegewezen — alle chauffeurs</option>
+        ${assignableUsers.map(u=>`<option value="${u.id}" ${d.toegewezenAan && d.toegewezenAan.id===u.id ? 'selected':''}>${escapeHtml(u.naam)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field" style="margin-bottom:0">
+      <label>Chauffeur — afhaling</label>
+      <select id="assign-select-afhaling">
+        <option value="">Niet toegewezen — alle chauffeurs</option>
+        ${assignableUsers.map(u=>`<option value="${u.id}" ${d.toegewezenAanAfhaling && d.toegewezenAanAfhaling.id===u.id ? 'selected':''}>${escapeHtml(u.naam)}</option>`).join('')}
+      </select>
+    </div>
   </div>
   ` : `
   <div class="queue-note" style="margin-bottom:14px;text-align:left">
-    ${d.toegewezenAan ? (d.toegewezenAan.id===currentUser.id ? '✓ Deze levering is aan jou toegewezen.' : 'Toegewezen aan ' + escapeHtml(d.toegewezenAan.naam) + '.') : 'Niet toegewezen — open voor alle chauffeurs.'}
+    Levering: ${d.toegewezenAan ? (d.toegewezenAan.id===currentUser.id ? '✓ aan jou toegewezen.' : 'toegewezen aan ' + escapeHtml(d.toegewezenAan.naam) + '.') : 'open voor alle chauffeurs.'}<br>
+    Afhaling: ${d.toegewezenAanAfhaling ? (d.toegewezenAanAfhaling.id===currentUser.id ? '✓ aan jou toegewezen.' : 'toegewezen aan ' + escapeHtml(d.toegewezenAanAfhaling.naam) + '.') : 'open voor alle chauffeurs.'}
   </div>
   `}
 
-  <button class="waze-btn" id="waze-btn">
+  ${d.afhaling.verzetAangevraagd ? `
+  <div class="next-pickup-banner" style="background:rgba(217,164,65,0.12);border-color:rgba(217,164,65,0.4);color:var(--warn)">
+    🔁 Verzetting aangevraagd — voorgestelde nieuwe afhaaldatum: <b>${fmtDate(d.afhaling.verzetNaarDatum)}</b>
+    ${d.afhaling.verzetReden ? `<br>Reden: ${escapeHtml(d.afhaling.verzetReden)}` : ''}
+    ${currentUser.rol === 'admin' ? `
+      <div class="stack" style="margin-top:10px">
+        <button class="btn small ok" id="approve-verzet">Goedkeuren — datum aanpassen</button>
+        <button class="btn small secondary" id="reject-verzet">Weigeren</button>
+      </div>
+    ` : `<div style="margin-top:6px;font-size:12px">In afwachting van goedkeuring door admin.</div>`}
+  </div>
+  ` : ''}
+
+  ${d.adres ? `<button class="waze-btn" id="waze-btn">
     <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C7 2 3 6 3 11c0 5.2 7.4 10.4 8.4 11a1 1 0 0 0 1.2 0C13.6 21.4 21 16.2 21 11c0-5-4-9-9-9zm0 12a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"/></svg>
     Start route in Waze
-  </button>
+  </button>` : `<div class="queue-note">Geen adres bekend voor deze boeking — vul het aan om Waze te kunnen gebruiken.</div>`}
 
   ${(d.artikelen || d.bedrag || d.ondergrond) ? `<div class="section">
     <h3>Artikelen &amp; details</h3>
     ${d.artikelen ? `<div class="field" style="margin-bottom:8px"><div style="font-size:14px">${escapeHtml(d.artikelen)}</div></div>` : ''}
     <div class="two-col" style="font-size:13px;color:var(--text-dim)">
       ${d.bedrag ? `<div>💶 Te ontvangen: <b style="color:var(--text)">€ ${escapeHtml(d.bedrag)}</b></div>` : ''}
-      ${d.ondergrond ? `<div>🌱 Ondergrond: <b style="color:var(--text)">${escapeHtml(d.ondergrond)}</b></div>` : ''}
+      ${d.ondergrond ? `<div>🌱 Ondergrond: <b style="color:var(--text)">${escapeHtml(normalizeOndergrond(d.ondergrond))}</b></div>` : ''}
     </div>
   </div>` : ''}
+
+  <div class="section">
+    <h3>Leverdatum &amp; levertijd</h3>
+    <div class="two-col">
+      <div class="field"><label>Leverdatum</label><input type="date" id="edit-datum" value="${d.datum||''}" ${d.plaatsing.bevestigd?'disabled':''}></div>
+      <div class="field"><label>Tijdslot</label><input type="text" id="edit-tijdslot" value="${escapeHtml(d.tijdslot||'')}" placeholder="Bv. 09:00 - 10:00" ${d.plaatsing.bevestigd?'disabled':''}></div>
+    </div>
+  </div>
 
   <div class="section">
     <h3>Afhaaltijd bevestigen</h3>
@@ -885,11 +1472,17 @@ function renderDetail(d){
 
   <div class="section">
     <h3>Checklist bij plaatsing</h3>
-    ${d.ondergrond ? `<div class="queue-note" style="margin-bottom:12px;text-align:left">Ondergrond volgens planning: <b>${escapeHtml(d.ondergrond)}</b>${/hard/i.test(d.ondergrond) ? ' — gebruik zandzakken, geen pinnen.' : ''}</div>` : ''}
+    ${d.ondergrond ? `<div class="queue-note" style="margin-bottom:12px;text-align:left">Ondergrond volgens planning: <b>${escapeHtml(normalizeOndergrond(d.ondergrond))}</b></div>` : ''}
     ${d.plaatsing.bevestigd ? `<div class="locked-banner">✓ Levering bevestigd — ${fmtDateTime(d.plaatsing.bevestigdOp)}</div>` : ''}
     <div class="${d.plaatsing.bevestigd ? 'locked-block' : ''}">
       ${renderPlaatsingChecklist(d)}
     </div>
+  </div>
+
+  <div class="section" id="fotos-section">
+    <h3>Foto's</h3>
+    <div class="photos-grid" id="photos-grid"><div class="add-photo" id="add-photo-btn">+</div></div>
+    <input type="file" accept="image/*" capture="environment" id="photo-input" style="display:none" multiple>
   </div>
 
   <div class="section">
@@ -908,35 +1501,39 @@ function renderDetail(d){
       : `<button class="btn secondary" id="edit-plaatsing">Levering bewerken</button>`}
   </div>
 
+  ${d.plaatsing.bevestigd ? `
   <div class="section">
     <h3>Checklist bij afhaling</h3>
-    ${!d.plaatsing.bevestigd
-      ? `<div class="queue-note">Wordt actief zodra de levering is bevestigd.</div>`
-      : d.afhaling.bevestigd
-        ? `<div class="locked-banner">✓ Afhaling bevestigd — ${fmtDateTime(d.afhaling.bevestigdOp)}</div>`
-        : ''
-    }
-    <div class="${(!d.plaatsing.bevestigd || d.afhaling.bevestigd) ? 'locked-block' : ''}">
+    ${d.afhaling.bevestigd ? `<div class="locked-banner">✓ Afhaling bevestigd — ${fmtDateTime(d.afhaling.bevestigdOp)}</div>` : ''}
+    <div class="${d.afhaling.bevestigd ? 'locked-block' : ''}">
       ${renderAfhalingChecklist(d)}
     </div>
   </div>
+  ` : ''}
 
   ${d.plaatsing.bevestigd ? `
   <div class="stack" style="margin-bottom:14px">
     ${!d.afhaling.bevestigd
       ? `<button class="btn ok" id="confirm-afhaling">Afhaling bevestigen</button>`
       : `<button class="btn secondary" id="edit-afhaling">Afhaling bewerken</button>`}
+    ${(!d.afhaling.bevestigd && !d.afhaling.verzetAangevraagd) ? `<button class="btn secondary" id="request-verzet">Afhaling vandaag niet gelukt — verzet aanvragen</button>` : ''}
   </div>` : ''}
 
-  <div class="section" id="fotos-section">
-    <h3>Foto's</h3>
-    <div class="photos-grid" id="photos-grid"><div class="add-photo" id="add-photo-btn">+</div></div>
-    <input type="file" accept="image/*" capture="environment" id="photo-input" style="display:none" multiple>
+  ${(d.afhaling.bevestigd && appSettings.googleReviewUrl) ? `
+  <div class="section">
+    <h3>Google review vragen</h3>
+    <div class="stack">
+      ${d.telefoon ? `<button class="btn secondary" id="review-whatsapp">Verstuur via WhatsApp</button>` : ''}
+      ${d.email ? `<button class="btn secondary" id="review-email">Verstuur via e-mail</button>` : ''}
+      ${(!d.telefoon && !d.email) ? `<div class="queue-note">Geen telefoon of e-mail bekend voor deze klant.</div>` : ''}
+    </div>
   </div>
+  ` : ''}
 
   <div class="stack">
     <button class="btn secondary" id="save-checklist">Gegevens opslaan</button>
     <button class="btn secondary" id="make-pdf">Plaatsingsverslag maken (PDF)</button>
+    ${currentUser.rol === 'admin' ? `<button class="btn danger" id="delete-delivery">Reservatie verwijderen</button>` : ''}
   </div>
   `;
 }
@@ -954,17 +1551,22 @@ function checkRow(id, label, sub, checked){
 
 function renderPlaatsingChecklist(d){
   const p = d.plaatsing;
+  const isHard = normalizeOndergrond(d.ondergrond) === 'Harde ondergrond';
+  const bevestigingOpties = isHard
+    ? [['zandzakken','Zandzakken'],['verankering','Verankering'],['geen','Geen']]
+    : [['pinnen','Pinnen'],['zandzakken','Zandzakken'],['verankering','Verankering'],['geen','Geen']];
   return `
+    ${isHard ? `<div class="queue-note" style="margin-bottom:12px;text-align:left;border-color:rgba(217,164,65,0.5);color:var(--warn)">
+      Harde ondergrond: valmatten zijn verplicht, gebruik zandzakken of verankering — geen pinnen.
+    </div>` : ''}
     ${checkRow('chk-correct','Springkasteel correct geplaatst','', p.correctGeplaatst)}
     <div class="check-row" style="border-bottom:none;flex-direction:column;align-items:flex-start;gap:8px;">
       <div class="txt">Bevestiging</div>
       <div class="pillgroup" id="bevestiging-pills">
-        ${pill('pinnen','Pinnen', p.bevestiging)}
-        ${pill('zandzakken','Zandzakken', p.bevestiging)}
-        ${pill('geen','Geen', p.bevestiging)}
+        ${bevestigingOpties.map(([val,label]) => pill(val,label,p.bevestiging)).join('')}
       </div>
     </div>
-    ${checkRow('chk-valmatten','Valmatten gebruikt','', p.valmatten)}
+    ${checkRow('chk-valmatten','Valmatten gebruikt', isHard ? 'Verplicht op harde ondergrond' : '', p.valmatten)}
     ${checkRow('chk-kabel','Verlengkabel gebruikt','', p.verlengkabel)}
     <div class="field" id="aantal-kabels-wrap" style="${p.verlengkabel?'':'display:none'};margin-top:8px">
       <label>Aantal verlengkabels</label>
@@ -978,11 +1580,17 @@ function renderPlaatsingChecklist(d){
   `;
 }
 
+function bevestigingLabel(val){
+  return val === 'pinnen' ? 'Pinnen' : val === 'zandzakken' ? 'Zandzakken' : val === 'verankering' ? 'Verankering' : '';
+}
+
 function renderAfhalingChecklist(d){
   const a = d.afhaling;
+  const p = d.plaatsing;
   return `
-    ${checkRow('chk-valmatten-terug','Valmatten terug mee','', a.valmattenTerug)}
-    ${checkRow('chk-kabels-terug','Verlengkabels terug mee','', a.kabelsTerug)}
+    ${p.valmatten ? checkRow('chk-valmatten-terug','Valmatten terug mee','', a.valmattenTerug) : ''}
+    ${p.verlengkabel ? checkRow('chk-kabels-terug', 'Verlengkabel' + (p.aantalKabels ? ' (' + escapeHtml(p.aantalKabels) + 'x)' : '') + ' terug mee','', a.kabelsTerug) : ''}
+    ${(p.bevestiging && p.bevestiging !== 'geen') ? checkRow('chk-bevestiging-terug', bevestigingLabel(p.bevestiging) + ' losgemaakt en terug mee','', a.bevestigingTerug) : ''}
     ${checkRow('chk-nat-vuil','Kasteel nat of vuil','', a.natOfVuil)}
     ${checkRow('chk-reiniging','Reiniging nodig','', a.reinigingNodig)}
     <div class="field" style="margin-top:10px">
@@ -1036,9 +1644,12 @@ function resizeImageFile(file, maxWidth=900, quality=0.62){
 function bindDetailEvents(d){
   document.getElementById('back-btn').addEventListener('click', ()=> setView('list'));
 
-  document.getElementById('waze-btn').addEventListener('click', ()=>{
-    window.open(wazeUrl(d.adres), '_blank');
-  });
+  const wazeBtn = document.getElementById('waze-btn');
+  if(wazeBtn){
+    wazeBtn.addEventListener('click', ()=>{
+      window.open(wazeUrl(d.adres), '_blank');
+    });
+  }
 
   document.getElementById('status-select').addEventListener('change', async (e)=>{
     const prev = d.status;
@@ -1054,14 +1665,113 @@ function bindDetailEvents(d){
       const uid = e.target.value;
       const user = assignableUsers.find(u => String(u.id) === uid);
       d.toegewezenAan = user ? { id: user.id, naam: user.naam } : null;
-      try{ await saveDeliveries(d); showToast(user ? 'Toegewezen aan ' + user.naam : 'Niet meer toegewezen'); }
+      try{ await saveDeliveries(d); showToast(user ? 'Chauffeur levering: ' + user.naam : 'Levering niet meer toegewezen'); }
       catch(err){ d.toegewezenAan = prev; showToast(err.message); }
+    });
+  }
+  const assignSelectAfhaling = document.getElementById('assign-select-afhaling');
+  if(assignSelectAfhaling){
+    assignSelectAfhaling.addEventListener('change', async (e)=>{
+      const prev = d.toegewezenAanAfhaling;
+      const uid = e.target.value;
+      const user = assignableUsers.find(u => String(u.id) === uid);
+      d.toegewezenAanAfhaling = user ? { id: user.id, naam: user.naam } : null;
+      try{ await saveDeliveries(d); showToast(user ? 'Chauffeur afhaling: ' + user.naam : 'Afhaling niet meer toegewezen'); }
+      catch(err){ d.toegewezenAanAfhaling = prev; showToast(err.message); }
+    });
+  }
+
+  const reviewWhatsappBtn = document.getElementById('review-whatsapp');
+  if(reviewWhatsappBtn){
+    reviewWhatsappBtn.addEventListener('click', ()=>{
+      const digits = String(d.telefoon).replace(/[^\d+]/g,'');
+      const intl = digits.startsWith('+') ? digits.slice(1) : digits.startsWith('0') ? '32' + digits.slice(1) : digits;
+      const tekst = `Bedankt om voor Belair-Fun te kiezen, ${d.klant}! Zou je ons een Google review willen geven? ${appSettings.googleReviewUrl}`;
+      window.open('https://wa.me/' + intl + '?text=' + encodeURIComponent(tekst), '_blank');
+    });
+  }
+  const reviewEmailBtn = document.getElementById('review-email');
+  if(reviewEmailBtn){
+    reviewEmailBtn.addEventListener('click', async ()=>{
+      reviewEmailBtn.disabled = true;
+      const origLabel = reviewEmailBtn.textContent;
+      reviewEmailBtn.textContent = 'Bezig met versturen...';
+      try{
+        await apiFetch('/api/deliveries/' + d.id + '/send-review-email', { method:'POST' });
+        showToast('Review-mail automatisch verstuurd naar ' + d.email);
+      }catch(err){
+        // Automatisch versturen niet ingesteld of mislukt: val terug op de mail-app openen
+        const subject = 'Bedankt van Belair-Fun!';
+        const body = `Hallo ${d.klant},\n\nBedankt om voor Belair-Fun te kiezen! Zou je ons een Google review willen geven?\n${appSettings.googleReviewUrl}\n\nMet vriendelijke groeten,\nBelair-Fun`;
+        window.location.href = 'mailto:' + encodeURIComponent(d.email) + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+        showToast('Automatisch verzenden nog niet ingesteld — mail-app geopend');
+      }
+      reviewEmailBtn.disabled = false;
+      reviewEmailBtn.textContent = origLabel;
+    });
+  }
+
+  const requestVerzetBtn = document.getElementById('request-verzet');
+  if(requestVerzetBtn){
+    requestVerzetBtn.addEventListener('click', async ()=>{
+      const basis = d.afhaaldatum || todayISO();
+      const nextDay = new Date(basis + 'T00:00:00');
+      nextDay.setDate(nextDay.getDate() + 1);
+      const voorgesteld = nextDay.toISOString().slice(0,10);
+      d.afhaling.verzetAangevraagd = true;
+      d.afhaling.verzetNaarDatum = voorgesteld;
+      try{
+        await saveDeliveries(d);
+        showToast('Verzetting aangevraagd — wacht op goedkeuring');
+        setView('detail', d.id);
+      }catch(err){
+        d.afhaling.verzetAangevraagd = false;
+        d.afhaling.verzetNaarDatum = '';
+        showToast(err.message);
+      }
+    });
+  }
+  const approveVerzetBtn = document.getElementById('approve-verzet');
+  if(approveVerzetBtn){
+    approveVerzetBtn.addEventListener('click', async ()=>{
+      const prevDatum = d.afhaaldatum;
+      d.afhaaldatum = d.afhaling.verzetNaarDatum;
+      d.afhaling.verzetAangevraagd = false;
+      const voorgesteld = d.afhaling.verzetNaarDatum;
+      d.afhaling.verzetNaarDatum = '';
+      try{
+        await saveDeliveries(d);
+        showToast('Afhaaldatum aangepast naar ' + fmtDate(voorgesteld));
+        setView('detail', d.id);
+      }catch(err){
+        d.afhaaldatum = prevDatum;
+        d.afhaling.verzetAangevraagd = true;
+        d.afhaling.verzetNaarDatum = voorgesteld;
+        showToast(err.message);
+      }
+    });
+  }
+  const rejectVerzetBtn = document.getElementById('reject-verzet');
+  if(rejectVerzetBtn){
+    rejectVerzetBtn.addEventListener('click', async ()=>{
+      d.afhaling.verzetAangevraagd = false;
+      const voorgesteld = d.afhaling.verzetNaarDatum;
+      d.afhaling.verzetNaarDatum = '';
+      try{
+        await saveDeliveries(d);
+        showToast('Verzetting geweigerd');
+        setView('detail', d.id);
+      }catch(err){
+        d.afhaling.verzetAangevraagd = true;
+        d.afhaling.verzetNaarDatum = voorgesteld;
+        showToast(err.message);
+      }
     });
   }
 
   // toggles
   ['chk-correct','chk-valmatten','chk-kabel','chk-netjes',
-   'chk-valmatten-terug','chk-kabels-terug','chk-nat-vuil','chk-reiniging'].forEach(id=>{
+   'chk-valmatten-terug','chk-kabels-terug','chk-bevestiging-terug','chk-nat-vuil','chk-reiniging'].forEach(id=>{
     const el = document.getElementById(id);
     if(!el) return;
     el.addEventListener('click', ()=>{
@@ -1110,6 +1820,14 @@ function bindDetailEvents(d){
     await collectAndSave(d, false);
     await generateAndOfferPdf(d);
   });
+
+  const deleteBtn = document.getElementById('delete-delivery');
+  if(deleteBtn){
+    deleteBtn.addEventListener('click', async ()=>{
+      const deleted = await requestDeleteDelivery(d.id, d.klant);
+      if(deleted) setView('list');
+    });
+  }
 
   const confirmPlaatsingBtn = document.getElementById('confirm-plaatsing');
   if(confirmPlaatsingBtn){
@@ -1180,30 +1898,43 @@ function bindDetailEvents(d){
   }
 }
 
+function checkedVal(id){
+  const el = document.getElementById(id);
+  return el ? el.dataset.checked === '1' : false;
+}
 function collectFromForm(d){
+  const datumEl = document.getElementById('edit-datum');
+  const tijdslotEl = document.getElementById('edit-tijdslot');
+  if(datumEl) d.datum = datumEl.value || d.datum;
+  if(tijdslotEl) d.tijdslot = tijdslotEl.value;
+
   d.afhaaldatum = document.getElementById('afhaaldatum').value;
   d.afhaaltijd = document.getElementById('afhaaltijd').value;
 
-  d.plaatsing.correctGeplaatst = document.getElementById('chk-correct').dataset.checked === '1';
+  d.plaatsing.correctGeplaatst = checkedVal('chk-correct');
   const bevestigingActive = document.querySelector('#bevestiging-pills .pill.active');
   d.plaatsing.bevestiging = bevestigingActive ? bevestigingActive.dataset.val : '';
-  d.plaatsing.valmatten = document.getElementById('chk-valmatten').dataset.checked === '1';
-  d.plaatsing.verlengkabel = document.getElementById('chk-kabel').dataset.checked === '1';
-  d.plaatsing.aantalKabels = document.getElementById('aantal-kabels').value;
-  d.plaatsing.netjes = document.getElementById('chk-netjes').dataset.checked === '1';
-  d.plaatsing.opmerkingen = document.getElementById('plaatsing-opmerkingen').value;
+  d.plaatsing.valmatten = checkedVal('chk-valmatten');
+  d.plaatsing.verlengkabel = checkedVal('chk-kabel');
+  const aantalKabelsEl = document.getElementById('aantal-kabels');
+  d.plaatsing.aantalKabels = aantalKabelsEl ? aantalKabelsEl.value : d.plaatsing.aantalKabels;
+  d.plaatsing.netjes = checkedVal('chk-netjes');
+  const plaatsingOpmEl = document.getElementById('plaatsing-opmerkingen');
+  d.plaatsing.opmerkingen = plaatsingOpmEl ? plaatsingOpmEl.value : d.plaatsing.opmerkingen;
   if(!d.plaatsing.tijdstip) d.plaatsing.tijdstip = new Date().toISOString();
 
   const betalingActive = document.querySelector('#betaling-pills .pill.active');
   d.betaling.status = betalingActive ? betalingActive.dataset.val : '';
   d.betaling.opmerking = document.getElementById('betaling-opmerking').value;
 
-  d.afhaling.valmattenTerug = document.getElementById('chk-valmatten-terug').dataset.checked === '1';
-  d.afhaling.kabelsTerug = document.getElementById('chk-kabels-terug').dataset.checked === '1';
-  d.afhaling.natOfVuil = document.getElementById('chk-nat-vuil').dataset.checked === '1';
-  d.afhaling.reinigingNodig = document.getElementById('chk-reiniging').dataset.checked === '1';
-  d.afhaling.opmerkingen = document.getElementById('afhaling-opmerkingen').value;
-  if((d.afhaling.valmattenTerug || d.afhaling.kabelsTerug || d.afhaling.opmerkingen) && !d.afhaling.tijdstip){
+  d.afhaling.valmattenTerug = checkedVal('chk-valmatten-terug');
+  d.afhaling.kabelsTerug = checkedVal('chk-kabels-terug');
+  d.afhaling.bevestigingTerug = checkedVal('chk-bevestiging-terug');
+  d.afhaling.natOfVuil = checkedVal('chk-nat-vuil');
+  d.afhaling.reinigingNodig = checkedVal('chk-reiniging');
+  const afhalingOpmEl = document.getElementById('afhaling-opmerkingen');
+  d.afhaling.opmerkingen = afhalingOpmEl ? afhalingOpmEl.value : d.afhaling.opmerkingen;
+  if((d.afhaling.valmattenTerug || d.afhaling.kabelsTerug || d.afhaling.bevestigingTerug || d.afhaling.opmerkingen) && !d.afhaling.tijdstip){
     d.afhaling.tijdstip = new Date().toISOString();
   }
 }
@@ -1269,7 +2000,7 @@ async function generateAndOfferPdf(d){
   line('E-mail', d.email);
   line('Leverdatum', fmtDate(d.datum) + (d.tijdslot ? ' — ' + d.tijdslot : ''));
   line('Artikelen', d.artikelen);
-  if(d.ondergrond) line('Ondergrond', d.ondergrond);
+  if(d.ondergrond) line('Ondergrond', normalizeOndergrond(d.ondergrond));
   if(d.bedrag) line('Te ontvangen', '€ ' + d.bedrag);
   y += 2;
 
@@ -1280,7 +2011,7 @@ async function generateAndOfferPdf(d){
 
   heading('Checklist bij plaatsing');
   checkline('Springkasteel correct geplaatst', d.plaatsing.correctGeplaatst);
-  line('Bevestiging', d.plaatsing.bevestiging === 'pinnen' ? 'Pinnen' : d.plaatsing.bevestiging === 'zandzakken' ? 'Zandzakken' : d.plaatsing.bevestiging === 'geen' ? 'Geen' : '—');
+  line('Bevestiging', bevestigingLabel(d.plaatsing.bevestiging) || (d.plaatsing.bevestiging === 'geen' ? 'Geen' : '—'));
   checkline('Valmatten gebruikt', d.plaatsing.valmatten);
   checkline('Verlengkabel gebruikt', d.plaatsing.verlengkabel);
   if(d.plaatsing.verlengkabel) line('Aantal verlengkabels', d.plaatsing.aantalKabels || '—');
@@ -1294,11 +2025,12 @@ async function generateAndOfferPdf(d){
   line('Opmerking', d.betaling.opmerking || '—');
   y += 2;
 
-  const hasAfhalingData = d.afhaling.valmattenTerug || d.afhaling.kabelsTerug || d.afhaling.natOfVuil || d.afhaling.reinigingNodig || d.afhaling.opmerkingen;
+  const hasAfhalingData = d.afhaling.valmattenTerug || d.afhaling.kabelsTerug || d.afhaling.bevestigingTerug || d.afhaling.natOfVuil || d.afhaling.reinigingNodig || d.afhaling.opmerkingen;
   if(hasAfhalingData){
     heading('Checklist bij afhaling');
-    checkline('Valmatten terug mee', d.afhaling.valmattenTerug);
-    checkline('Verlengkabels terug mee', d.afhaling.kabelsTerug);
+    if(d.plaatsing.valmatten) checkline('Valmatten terug mee', d.afhaling.valmattenTerug);
+    if(d.plaatsing.verlengkabel) checkline('Verlengkabel terug mee', d.afhaling.kabelsTerug);
+    if(d.plaatsing.bevestiging && d.plaatsing.bevestiging !== 'geen') checkline(bevestigingLabel(d.plaatsing.bevestiging) + ' terug mee', d.afhaling.bevestigingTerug);
     checkline('Kasteel nat of vuil', d.afhaling.natOfVuil);
     checkline('Reiniging nodig', d.afhaling.reinigingNodig);
     line('Opmerkingen', d.afhaling.opmerkingen || '—');
@@ -1324,7 +2056,7 @@ async function generateAndOfferPdf(d){
   y += 4;
   doc.setDrawColor(210,210,210); doc.line(marginL, y, pageW-marginL, y); y += 6;
   doc.setFontSize(9); doc.setTextColor(140,140,140);
-  doc.text('Gegenereerd op ' + new Date().toLocaleString('nl-BE'), marginL, y);
+  doc.text('Gegenereerd op ' + new Date().toLocaleString('nl-BE', { hour12:false }), marginL, y);
 
   const fileName = 'plaatsingsverslag-' + (d.klant || 'klant').replace(/[^a-z0-9]+/gi,'-').toLowerCase() + '-' + d.datum + '.pdf';
 
@@ -1344,33 +2076,121 @@ async function generateAndOfferPdf(d){
 }
 
 // ---------- DOSSIERS (overview of completed / all with saved checklists) ----------
-function renderDossiers(){
-  const relevant = deliveries.filter(d => d.plaatsing.tijdstip || d.status === 'afgerond');
-  if(relevant.length === 0){
-    return `<div class="empty"><div class="big">Nog geen dossiers</div>Zodra je een checklist invult of een verslag maakt, verschijnt het dossier hier.</div>`;
-  }
-  const sorted = [...relevant].sort((a,b)=> (b.datum||'').localeCompare(a.datum||''));
-  return sorted.map(d=>`
+function pad2(n){ return String(n).padStart(2,'0'); }
+const MAANDNAMEN = ['januari','februari','maart','april','mei','juni','juli','augustus','september','oktober','november','december'];
+const WEEKDAGEN = ['Ma','Di','Wo','Do','Vr','Za','Zo'];
+let calYear = new Date().getFullYear();
+let calMonth = new Date().getMonth();
+let calSelectedDate = todayISO();
+
+function activityDatesSet(){
+  const set = new Set();
+  deliveries.forEach(d=>{
+    if(d.datum) set.add(d.datum);
+    if(d.afhaaldatum) set.add(d.afhaaldatum);
+  });
+  return set;
+}
+
+function dossierCardHtml(d){
+  const factuurStar = (currentUser.rol === 'admin' && d.betaling.status === 'factuur') ? `<span class="star-badge" title="Nog te factureren">★</span>` : '';
+  const verzetBadge = d.afhaling.verzetAangevraagd ? `<span class="assign-badge other" style="background:rgba(217,164,65,0.18);color:var(--warn)">🔁 Verzet aangevraagd</span>` : '';
+  const deleteBtn = currentUser.rol === 'admin' ? `<span class="card-delete-btn" data-delete-id="${d.id}" data-delete-naam="${escapeHtml(d.klant||'')}" title="Verwijderen">✕</span>` : '';
+  const stamps = [];
+  if(d.plaatsing.bevestigd && d.plaatsing.bevestigdOp) stamps.push('Geleverd: ' + fmtDateTime(d.plaatsing.bevestigdOp));
+  if(d.afhaling.bevestigd && d.afhaling.bevestigdOp) stamps.push('Afgehaald: ' + fmtDateTime(d.afhaling.bevestigdOp));
+  return `
     <div class="card status-${d.status}" data-id="${d.id}" data-open="1">
       <div class="row1">
         <div>
-          <div class="klant">${escapeHtml(d.klant)}</div>
-          <div class="adres">${escapeHtml(d.adres)}</div>
+          <div class="klant">${escapeHtml(primaryProductLabel(d))} ${factuurStar}</div>
+          <div class="adres" style="margin-top:1px">${escapeHtml(d.klant)}</div>
         </div>
-        <div class="tijd">${fmtDate(d.datum)}</div>
+        <div style="text-align:right">
+          <div style="display:flex;align-items:center;gap:6px;justify-content:flex-end">
+            <div class="tijd">${fmtDate(d.datum)}</div>
+            ${deleteBtn}
+          </div>
+          ${d.ondergrond ? `<div style="font-size:11.5px;color:var(--text-dim);margin-top:4px">🌱 ${escapeHtml(normalizeOndergrond(d.ondergrond))}</div>` : ''}
+          ${d.bedrag ? `<div style="font-size:11.5px;color:var(--text-dim);margin-top:2px">💶 € ${escapeHtml(d.bedrag)}</div>` : ''}
+        </div>
       </div>
-      <span class="badge ${d.status}">${STATUS_LABEL[d.status]}</span>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px">
+        <span class="badge ${d.status}" style="margin-top:0">${STATUS_LABEL[d.status]}</span>
+        ${verzetBadge}
+      </div>
+      ${stamps.length ? `<div style="font-size:11.5px;color:var(--text-dim);margin-top:8px">${stamps.join(' · ')}</div>` : ''}
       <div class="stack" style="margin-top:10px">
         <button class="btn small secondary" data-pdf="${d.id}">Verslag downloaden / delen</button>
       </div>
     </div>
-  `).join('');
+  `;
+}
+
+function renderDossiers(){
+  const activity = activityDatesSet();
+  const firstOfMonth = new Date(calYear, calMonth, 1);
+  const daysInMonth = new Date(calYear, calMonth+1, 0).getDate();
+  const startWeekday = (firstOfMonth.getDay() + 6) % 7; // maandag = 0
+
+  let cells = '';
+  for(let i=0;i<startWeekday;i++) cells += `<div class="cal-cell cal-empty"></div>`;
+  for(let day=1; day<=daysInMonth; day++){
+    const dateStr = `${calYear}-${pad2(calMonth+1)}-${pad2(day)}`;
+    const hasActivity = activity.has(dateStr);
+    const isSelected = dateStr === calSelectedDate;
+    const isToday = dateStr === todayISO();
+    cells += `<div class="cal-cell ${hasActivity?'cal-active':'cal-free'} ${isSelected?'cal-selected':''} ${isToday?'cal-today':''}" data-date="${dateStr}">${day}</div>`;
+  }
+
+  const dayItems = deliveries.filter(d => d.datum === calSelectedDate || d.afhaaldatum === calSelectedDate)
+    .sort((a,b)=> sortKeyFor(a, a.datum===calSelectedDate ? 'tijdslot' : 'afhaaltijd') - sortKeyFor(b, b.datum===calSelectedDate ? 'tijdslot' : 'afhaaltijd'));
+
+  return `
+  <div class="section">
+    <div class="cal-header">
+      <span class="cal-nav" id="cal-prev">‹</span>
+      <span class="cal-title">${MAANDNAMEN[calMonth]} ${calYear}</span>
+      <span class="cal-nav" id="cal-next">›</span>
+    </div>
+    <div class="cal-weekdays">${WEEKDAGEN.map(w=>`<div>${w}</div>`).join('')}</div>
+    <div class="cal-grid">${cells}</div>
+    <div class="cal-legend"><span class="cal-dot cal-free"></span> Geen reservaties<span class="cal-dot cal-active" style="margin-left:16px"></span> Reservaties</div>
+  </div>
+  <div class="section">
+    <h3>${fmtDate(calSelectedDate)}</h3>
+    ${dayItems.length === 0 ? `<div class="queue-note" style="text-align:left">Geen reservaties op deze dag.</div>` : dayItems.map(d => dossierCardHtml(d)).join('')}
+  </div>
+  `;
 }
 function bindDossierEvents(){
+  document.querySelectorAll('.cal-cell[data-date]').forEach(cell=>{
+    cell.addEventListener('click', ()=>{
+      calSelectedDate = cell.dataset.date;
+      render();
+    });
+  });
+  const calPrev = document.getElementById('cal-prev');
+  if(calPrev) calPrev.addEventListener('click', ()=>{
+    calMonth--; if(calMonth < 0){ calMonth = 11; calYear--; }
+    render();
+  });
+  const calNext = document.getElementById('cal-next');
+  if(calNext) calNext.addEventListener('click', ()=>{
+    calMonth++; if(calMonth > 11){ calMonth = 0; calYear++; }
+    render();
+  });
   document.querySelectorAll('[data-open]').forEach(c=>{
     c.addEventListener('click', (e)=>{
-      if(e.target.closest('[data-pdf]')) return;
+      if(e.target.closest('[data-pdf]') || e.target.closest('.card-delete-btn')) return;
       setView('detail', c.dataset.id);
+    });
+  });
+  document.querySelectorAll('.card-delete-btn').forEach(btn=>{
+    btn.addEventListener('click', async (e)=>{
+      e.stopPropagation();
+      const deleted = await requestDeleteDelivery(btn.dataset.deleteId, btn.dataset.deleteNaam);
+      if(deleted) render();
     });
   });
   document.querySelectorAll('[data-pdf]').forEach(btn=>{
@@ -1394,16 +2214,83 @@ function showAuthScreen(){
   renderAuthForm();
 }
 let assignableUsers = [];
+let appSettings = {};
 async function showApp(){
   document.getElementById('authScreen').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
   document.getElementById('teamTabBtn').style.display = (currentUser && currentUser.rol === 'admin') ? '' : 'none';
   if(currentUser && currentUser.rol === 'admin'){
     try{ assignableUsers = await apiFetch('/api/users'); }catch(e){ assignableUsers = []; }
+  } else {
+    startLocationSharing();
   }
+  try{ appSettings = await apiFetch('/api/settings'); }catch(e){ appSettings = {}; }
+  setupPushNotifications();
   await loadDeliveries();
   setView('list');
 }
+
+// ---------- Push-meldingen (enkel geactiveerd wanneer de admin handmatig verstuurt) ----------
+function urlBase64ToUint8Array(base64String){
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g,'+').replace(/_/g,'/');
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+async function setupPushNotifications(){
+  try{
+    if(!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    const reg = await navigator.serviceWorker.register('/sw.js');
+    const { key } = await apiFetch('/api/push/public-key');
+    if(!key) return; // nog niet geconfigureerd op de server
+
+    if(Notification.permission === 'denied') return;
+    if(Notification.permission !== 'granted'){
+      const perm = await Notification.requestPermission();
+      if(perm !== 'granted') return;
+    }
+    let sub = await reg.pushManager.getSubscription();
+    if(!sub){
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(key)
+      });
+    }
+    await apiFetch('/api/push/subscribe', { method:'POST', body: JSON.stringify(sub) });
+  }catch(err){
+    console.error('Push-meldingen instellen mislukt:', err);
+  }
+}
+
+// ---------- Locatie delen (enkel chauffeurs, enkel terwijl de app open/actief is) ----------
+let locationWatchId = null;
+let lastLocationSentAt = 0;
+function startLocationSharing(){
+  if(!('geolocation' in navigator) || locationWatchId !== null) return;
+  locationWatchId = navigator.geolocation.watchPosition(
+    (pos)=>{
+      const now = Date.now();
+      if(now - lastLocationSentAt < 20000) return; // max om de 20s versturen
+      lastLocationSentAt = now;
+      apiFetch('/api/location', {
+        method: 'POST',
+        body: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude })
+      }).catch(()=>{});
+    },
+    ()=>{ /* geen toestemming of niet beschikbaar: negeren, app blijft gewoon werken */ },
+    { enableHighAccuracy: true, maximumAge: 15000, timeout: 20000 }
+  );
+}
+function stopLocationSharing(){
+  if(locationWatchId !== null){
+    navigator.geolocation.clearWatch(locationWatchId);
+    locationWatchId = null;
+  }
+}
+document.addEventListener('visibilitychange', ()=>{
+  if(document.hidden) stopLocationSharing();
+  else if(currentUser && currentUser.rol !== 'admin') startLocationSharing();
+});
 
 function renderAuthForm(){
   const sub = document.getElementById('authSub');
