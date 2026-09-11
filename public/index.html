@@ -788,21 +788,24 @@ function renderUnassigned(){
 }
 function renderPerDriver(){
   if(teamUsers.length === 0) return 'Nog geen teamleden.';
-  return teamUsers.map(u=>{
+  const blocks = teamUsers.map(u=>{
     const leveringen = deliveries.filter(d => d.toegewezenAan && d.toegewezenAan.id === u.id && d.datum === perDriverDate)
       .sort((a,b)=> sortKeyFor(a,'tijdslot') - sortKeyFor(b,'tijdslot'));
     const afhalingen = deliveries.filter(d => d.toegewezenAanAfhaling && d.toegewezenAanAfhaling.id === u.id && (d.afhaaldatum || d.datum) === perDriverDate)
       .sort((a,b)=> sortKeyFor(a,'afhaaltijd') - sortKeyFor(b,'afhaaltijd'));
     const totaal = leveringen.length + afhalingen.length;
+    if(totaal === 0) return '';
     const afgerond = leveringen.filter(d=>d.status==='afgerond').length + afhalingen.filter(d=>d.status==='afgerond').length;
-    return `<details class="driver-block">
-      <summary>${escapeHtml(u.naam)} <span class="driver-count">${totaal === 0 ? 'niets gepland' : afgerond + '/' + totaal + ' afgerond'}</span></summary>
-      ${totaal === 0 ? `<div class="queue-note" style="text-align:left;margin-top:8px">Niets gepland op deze dag.</div>` : `
-        ${leveringen.length ? `<div class="section-label te-leveren-label">Leveringen</div>${leveringen.map(d=>miniRow(d,'Levering')).join('')}` : ''}
-        ${afhalingen.length ? `<div class="section-label op-te-halen-label">Afhalingen</div>${afhalingen.map(d=>miniRow(d,'Afhaling')).join('')}` : ''}
-      `}
+    return `<details class="driver-block" open>
+      <summary>${escapeHtml(u.naam)} <span class="driver-count">${afgerond}/${totaal} afgerond</span></summary>
+      ${leveringen.length ? `<div class="section-label te-leveren-label">Leveringen</div>${leveringen.map(d=>miniRow(d,'Levering')).join('')}` : ''}
+      ${afhalingen.length ? `<div class="section-label op-te-halen-label">Afhalingen</div>${afhalingen.map(d=>miniRow(d,'Afhaling')).join('')}` : ''}
     </details>`;
-  }).join('');
+  }).filter(Boolean);
+  if(blocks.length === 0){
+    return `<div class="queue-note" style="text-align:left">Niemand heeft die dag iets gepland.</div>`;
+  }
+  return blocks.join('');
 }
 function bindAssignmentOverviewEvents(){
   document.querySelectorAll('#unassigned-list .mini-row, #per-driver-list .mini-row').forEach(row=>{
@@ -969,9 +972,13 @@ function cardHtml(d, extraClass){
         <div class="adres" style="margin-top:1px">${escapeHtml(d.klant || 'Naamloos')}</div>
         <div class="adres" style="opacity:0.75">${escapeHtml(d.adres || 'Geen adres')}</div>
       </div>
-      <div style="display:flex;align-items:center;gap:6px;">
-        <div class="tijd">${escapeHtml(tijdWeergave || '')}</div>
-        ${deleteBtn}
+      <div style="text-align:right">
+        <div style="display:flex;align-items:center;gap:6px;justify-content:flex-end">
+          <div class="tijd">${escapeHtml(tijdWeergave || '')}</div>
+          ${deleteBtn}
+        </div>
+        ${d.ondergrond ? `<div style="font-size:11.5px;color:var(--text-dim);margin-top:4px">🌱 ${escapeHtml(normalizeOndergrond(d.ondergrond))}</div>` : ''}
+        ${d.bedrag ? `<div style="font-size:11.5px;color:var(--text-dim);margin-top:2px">💶 € ${escapeHtml(d.bedrag)}</div>` : ''}
       </div>
     </div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px">
@@ -1395,18 +1402,15 @@ function renderDetail(d){
       : `<button class="btn secondary" id="edit-plaatsing">Levering bewerken</button>`}
   </div>
 
+  ${d.plaatsing.bevestigd ? `
   <div class="section">
     <h3>Checklist bij afhaling</h3>
-    ${!d.plaatsing.bevestigd
-      ? `<div class="queue-note">Wordt actief zodra de levering is bevestigd.</div>`
-      : d.afhaling.bevestigd
-        ? `<div class="locked-banner">✓ Afhaling bevestigd — ${fmtDateTime(d.afhaling.bevestigdOp)}</div>`
-        : ''
-    }
-    <div class="${(!d.plaatsing.bevestigd || d.afhaling.bevestigd) ? 'locked-block' : ''}">
+    ${d.afhaling.bevestigd ? `<div class="locked-banner">✓ Afhaling bevestigd — ${fmtDateTime(d.afhaling.bevestigdOp)}</div>` : ''}
+    <div class="${d.afhaling.bevestigd ? 'locked-block' : ''}">
       ${renderAfhalingChecklist(d)}
     </div>
   </div>
+  ` : ''}
 
   ${d.plaatsing.bevestigd ? `
   <div class="stack" style="margin-bottom:14px">
