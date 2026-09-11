@@ -706,6 +706,46 @@ app.post('/api/notify', auth, adminOnly, async (req, res) => {
   res.json({ sent, failed, ontvangers: userIds.length });
 });
 
+// ---------- Koppeling met WordPress-website (beschikbaarheid) ----------
+app.post('/api/sync-website', auth, adminOnly, async (req, res) => {
+  const siteUrl = process.env.WORDPRESS_SITE_URL;
+  const syncKey = process.env.WORDPRESS_SYNC_SECRET;
+  if (!siteUrl || !syncKey) {
+    return res.status(501).json({ error: 'Website-koppeling is nog niet geconfigureerd (WORDPRESS_SITE_URL / WORDPRESS_SYNC_SECRET ontbreken bij Render)' });
+  }
+  const fullSync = !!(req.body && req.body.fullSync);
+
+  const r = await pool.query(`SELECT data FROM deliveries`);
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 2);
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
+
+  const bookings = r.rows
+    .map(row => row.data)
+    .filter(d => d.datum && d.datum >= cutoffStr && d.artikelen)
+    .map(d => ({
+      booking_id: d.boekingsnummer || d.id,
+      item: d.artikelen,
+      delivery_date: d.datum,
+      collection_date: d.afhaaldatum || d.datum
+    }));
+
+  try {
+    const wpRes = await fetch(siteUrl.replace(/\/$/, '') + '/wp-json/belair/v1/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Belair-Sync-Key': syncKey },
+      body: JSON.stringify({ bookings, full_sync: fullSync })
+    });
+    const wpData = await wpRes.json().catch(() => null);
+    if (!wpRes.ok || !wpData) {
+      return res.status(502).json({ error: 'Website antwoordde met een fout (' + wpRes.status + ')', detail: wpData });
+    }
+    res.json({ verstuurd: bookings.length, ...wpData });
+  } catch (e) {
+    res.status(502).json({ error: 'Kon de website niet bereiken: ' + e.message });
+  }
+});
+
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
