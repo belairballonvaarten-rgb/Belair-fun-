@@ -731,6 +731,28 @@ function renderTeam(){
     <div id="team-list">Laden...</div>
   </div>
   <div class="section">
+    <h3>Melding versturen</h3>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">Stuurt een push-melding naar het toestel van de gekozen persoon/team, enkel als je zelf op "Versturen" drukt.</div>
+    <div class="field">
+      <label>Naar</label>
+      <select id="notify-target">
+        <option value="">Kies een team of teamlid...</option>
+      </select>
+    </div>
+    <div class="field"><label>Titel</label><input type="text" id="notify-title" placeholder="Bv. Wijziging planning" value="Belair-Fun"></div>
+    <div class="field"><label>Bericht</label><textarea id="notify-message" placeholder="Bv. Afhaling is verplaatst naar morgen, gelieve contact op te nemen met kantoor"></textarea></div>
+    <button class="btn" id="notify-send-btn">Versturen</button>
+    <div id="notify-result" style="margin-top:10px;font-size:13px;color:var(--text-dim)"></div>
+  </div>
+  <div class="section">
+    <h3>Voertuigteams</h3>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">Groepeer bv. een chauffeur en begeleider(s) van hetzelfde voertuig, zodat je ze samen een melding kan sturen.</div>
+    <div id="teams-list" style="margin-bottom:14px">Laden...</div>
+    <div class="field"><label>Naam nieuw team</label><input type="text" id="team-naam" placeholder="Bv. Voertuig 1"></div>
+    <div class="field" id="team-members-field"><label>Leden</label><div id="team-members-checkboxes">Laden...</div></div>
+    <button class="btn small secondary" id="team-add-btn">Team toevoegen</button>
+  </div>
+  <div class="section">
     <h3>Nieuw teamlid</h3>
     <div class="field"><label>Naam</label><input type="text" id="t-naam" placeholder="Bv. Kevin"></div>
     <div class="field"><label>Gebruikersnaam (voor inloggen)</label><input type="text" id="t-username" placeholder="Bv. kevin"></div>
@@ -843,11 +865,88 @@ async function bindTeamEvents(){
       setView('team');
     }catch(err){ showToast(err.message); }
   });
+  document.getElementById('team-add-btn').addEventListener('click', async ()=>{
+    const naam = document.getElementById('team-naam').value.trim();
+    if(!naam){ showToast('Geef het team een naam'); return; }
+    const memberIds = Array.from(document.querySelectorAll('.team-member-cb:checked')).map(cb => parseInt(cb.value,10));
+    try{
+      await apiFetch('/api/teams', { method:'POST', body: JSON.stringify({ naam, memberIds }) });
+      showToast('Team toegevoegd');
+      document.getElementById('team-naam').value = '';
+      await loadTeamsData();
+    }catch(err){ showToast(err.message); }
+  });
+  document.getElementById('notify-send-btn').addEventListener('click', async ()=>{
+    const target = document.getElementById('notify-target').value;
+    const title = document.getElementById('notify-title').value.trim();
+    const message = document.getElementById('notify-message').value.trim();
+    const resultEl = document.getElementById('notify-result');
+    if(!target){ showToast('Kies eerst een team of teamlid'); return; }
+    if(!title || !message){ showToast('Vul titel en bericht in'); return; }
+    const [type, id] = target.split(':');
+    const body = type === 'team' ? { teamId: id, title, message } : { userId: id, title, message };
+    resultEl.textContent = 'Bezig met versturen...';
+    try{
+      const r = await apiFetch('/api/notify', { method:'POST', body: JSON.stringify(body) });
+      resultEl.textContent = `Verstuurd naar ${r.sent} toeste(l)len van de ${r.ontvangers} gekozen perso(o)n(en).` + (r.failed ? ` (${r.failed} niet bereikbaar — toestel had de app niet recent open staan)` : '');
+      showToast('Melding verstuurd');
+    }catch(err){
+      resultEl.textContent = err.message;
+      showToast(err.message);
+    }
+  });
   await refreshTeamList();
   document.getElementById('unassigned-list').innerHTML = renderUnassigned();
   document.getElementById('per-driver-list').innerHTML = renderPerDriver();
   bindAssignmentOverviewEvents();
   await loadDriverLocations();
+  await loadTeamsData();
+}
+
+let teamsData = [];
+async function loadTeamsData(){
+  const teamsListEl = document.getElementById('teams-list');
+  const checkboxesEl = document.getElementById('team-members-checkboxes');
+  const notifyTargetEl = document.getElementById('notify-target');
+  if(!teamsListEl) return;
+  try{ teamsData = await apiFetch('/api/teams'); }
+  catch(err){ teamsListEl.textContent = err.message; return; }
+
+  teamsListEl.innerHTML = teamsData.length === 0
+    ? `<div class="queue-note" style="text-align:left">Nog geen voertuigteams aangemaakt.</div>`
+    : teamsData.map(t => `
+      <div class="team-row">
+        <div>
+          <div class="naam">${escapeHtml(t.naam)}</div>
+          <div class="rolbadge">${t.leden.map(l=>escapeHtml(l.naam)).join(', ') || 'Geen leden'}</div>
+        </div>
+        <span class="rm" data-team-id="${t.id}">Verwijderen</span>
+      </div>
+    `).join('');
+  teamsListEl.querySelectorAll('.rm').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(!confirm('Dit voertuigteam verwijderen?')) return;
+      try{
+        await apiFetch('/api/teams/' + btn.dataset.teamId, { method:'DELETE' });
+        showToast('Team verwijderd');
+        await loadTeamsData();
+      }catch(err){ showToast(err.message); }
+    });
+  });
+
+  if(checkboxesEl){
+    checkboxesEl.innerHTML = assignableUsers.map(u => `
+      <label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:14px;cursor:pointer">
+        <input type="checkbox" value="${u.id}" class="team-member-cb"> ${escapeHtml(u.naam)}
+      </label>
+    `).join('') || '<div class="queue-note" style="text-align:left">Geen teamleden om te kiezen.</div>';
+  }
+
+  if(notifyTargetEl){
+    const teamOptions = teamsData.map(t => `<option value="team:${t.id}">👥 ${escapeHtml(t.naam)}</option>`).join('');
+    const userOptions = assignableUsers.map(u => `<option value="user:${u.id}">${escapeHtml(u.naam)}</option>`).join('');
+    notifyTargetEl.innerHTML = `<option value="">Kies een team of teamlid...</option>${teamOptions}${userOptions}`;
+  }
 }
 
 let locationsMap = null;
@@ -2126,8 +2225,41 @@ async function showApp(){
     startLocationSharing();
   }
   try{ appSettings = await apiFetch('/api/settings'); }catch(e){ appSettings = {}; }
+  setupPushNotifications();
   await loadDeliveries();
   setView('list');
+}
+
+// ---------- Push-meldingen (enkel geactiveerd wanneer de admin handmatig verstuurt) ----------
+function urlBase64ToUint8Array(base64String){
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g,'+').replace(/_/g,'/');
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+async function setupPushNotifications(){
+  try{
+    if(!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    const reg = await navigator.serviceWorker.register('/sw.js');
+    const { key } = await apiFetch('/api/push/public-key');
+    if(!key) return; // nog niet geconfigureerd op de server
+
+    if(Notification.permission === 'denied') return;
+    if(Notification.permission !== 'granted'){
+      const perm = await Notification.requestPermission();
+      if(perm !== 'granted') return;
+    }
+    let sub = await reg.pushManager.getSubscription();
+    if(!sub){
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(key)
+      });
+    }
+    await apiFetch('/api/push/subscribe', { method:'POST', body: JSON.stringify(sub) });
+  }catch(err){
+    console.error('Push-meldingen instellen mislukt:', err);
+  }
 }
 
 // ---------- Locatie delen (enkel chauffeurs, enkel terwijl de app open/actief is) ----------
