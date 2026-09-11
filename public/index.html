@@ -785,6 +785,15 @@ function renderTeam(){
     <div id="unassigned-list">Laden...</div>
   </div>
   <div class="section">
+    <h3>Aandachtspunten</h3>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">Voor de dag die je hierboven bij "Per voertuig" hebt gekozen.</div>
+    <div class="section-label" style="margin-top:0"><span style="width:8px;height:8px;border-radius:50%;display:inline-block;background:var(--warn);margin-right:6px"></span>Nog te betalen</div>
+    <div id="onbetaald-list" style="margin-bottom:14px">Laden...</div>
+    <div class="section-label"><span style="width:8px;height:8px;border-radius:50%;display:inline-block;background:var(--danger);margin-right:6px"></span>Vuil teruggebracht — aandacht nodig</div>
+    <div id="vuil-list" style="margin-bottom:14px">Laden...</div>
+    <button class="btn small secondary" id="dagrapport-pdf-btn">📄 Dagrapport PDF</button>
+  </div>
+  <div class="section">
     <h3>Melding versturen</h3>
     <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">Stuurt een push-melding naar het toestel van de gekozen persoon/team, enkel als je zelf op "Versturen" drukt.</div>
     <div class="field">
@@ -889,6 +898,107 @@ function miniRow(d, typeLabel){
   </div>`;
 }
 let perDriverDate = todayISO();
+const BETALING_LABELS = { 'reeds-voldaan':'Reeds voldaan', 'voldaan-cash':'Voldaan (cash)', 'voldaan-overschrijving':'Voldaan (overschrijving)', 'factuur':'Factuur opmaken' };
+function isOnbetaald(d){
+  return !['reeds-voldaan','voldaan-cash','voldaan-overschrijving'].includes(d.betaling.status);
+}
+function renderOnbetaald(){
+  const items = deliveries.filter(d => (d.datum === perDriverDate || d.afhaaldatum === perDriverDate) && isOnbetaald(d))
+    .sort((a,b)=> (a.klant||'').localeCompare(b.klant||''));
+  if(items.length === 0) return `<div class="queue-note" style="text-align:left">✓ Alles in orde voor deze dag.</div>`;
+  return items.map(d => `<div class="mini-row" data-id="${d.id}">
+    <div class="mini-row-title">${escapeHtml(d.klant || 'Naamloos')} <span class="mini-row-type">${d.betaling.status ? escapeHtml(BETALING_LABELS[d.betaling.status]||d.betaling.status) : 'Niet ingevuld'}</span></div>
+    <div class="mini-row-sub">${escapeHtml(primaryProductLabel(d))}${d.bedrag ? ' — € ' + escapeHtml(d.bedrag) : ''}</div>
+  </div>`).join('');
+}
+function renderVuilTerug(){
+  const items = deliveries.filter(d => d.afhaling.natOfVuil && (d.afhaaldatum === perDriverDate || (!d.afhaaldatum && d.datum === perDriverDate)))
+    .sort((a,b)=> (a.klant||'').localeCompare(b.klant||''));
+  if(items.length === 0) return `<div class="queue-note" style="text-align:left">✓ Niets vuil teruggekomen voor deze dag.</div>`;
+  return items.map(d => `<div class="mini-row" data-id="${d.id}">
+    <div class="mini-row-title">${escapeHtml(d.klant || 'Naamloos')} <span class="mini-row-type">${d.afhaling.reinigingNodig ? 'Reiniging nodig' : 'Vuil'}</span></div>
+    <div class="mini-row-sub">${escapeHtml(primaryProductLabel(d))}${d.afhaling.opmerkingen ? ' — ' + escapeHtml(d.afhaling.opmerkingen) : ''}</div>
+  </div>`).join('');
+}
+async function generateDagrapportPdf(dateStr){
+  const onbetaald = deliveries.filter(d => (d.datum === dateStr || d.afhaaldatum === dateStr) && isOnbetaald(d))
+    .sort((a,b)=> (a.klant||'').localeCompare(b.klant||''));
+  const vuilTerug = deliveries.filter(d => d.afhaling.natOfVuil && (d.afhaaldatum === dateStr || (!d.afhaaldatum && d.datum === dateStr)))
+    .sort((a,b)=> (a.klant||'').localeCompare(b.klant||''));
+
+  if(!window.jspdf){ showToast('PDF-bibliotheek nog aan het laden, probeer opnieuw'); return; }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const marginL = 16;
+  let y = 18;
+  const pageH = doc.internal.pageSize.getHeight();
+  const pageW = doc.internal.pageSize.getWidth();
+  function ensureSpace(h){ if(y + h > pageH - 16){ doc.addPage(); y = 18; } }
+  function heading(text, kleur){
+    ensureSpace(10);
+    doc.setFont('helvetica','bold'); doc.setFontSize(13); doc.setTextColor(kleur[0],kleur[1],kleur[2]);
+    doc.text(text, marginL, y); y += 6;
+    doc.setDrawColor(kleur[0],kleur[1],kleur[2]); doc.setLineWidth(0.4);
+    doc.line(marginL, y-4.5, pageW-marginL, y-4.5); y += 2;
+    doc.setTextColor(30,30,30);
+  }
+  function regel(hoofd, sub){
+    ensureSpace(11);
+    doc.setFont('helvetica','bold'); doc.setFontSize(10.5); doc.setTextColor(30,30,30);
+    doc.text(hoofd, marginL, y); y += 5;
+    doc.setFont('helvetica','normal'); doc.setFontSize(9.5); doc.setTextColor(110,110,110);
+    const wrapped = doc.splitTextToSize(sub, pageW - marginL*2);
+    doc.text(wrapped, marginL, y); y += wrapped.length*4.6 + 3;
+    doc.setTextColor(30,30,30);
+  }
+
+  doc.setFont('helvetica','bold'); doc.setFontSize(18); doc.setTextColor(30,30,30);
+  doc.text('Belair-Fun', marginL, y); y += 7;
+  doc.setFontSize(13); doc.setTextColor(90,90,90);
+  doc.text('Dagrapport — ' + fmtDate(dateStr), marginL, y); y += 4;
+  doc.setDrawColor(210,210,210); doc.line(marginL, y, pageW-marginL, y); y += 10;
+  doc.setTextColor(30,30,30);
+
+  heading(`Nog te betalen (${onbetaald.length})`, [217,164,65]);
+  if(onbetaald.length === 0){
+    doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(110,110,110);
+    doc.text('Alles in orde voor deze dag.', marginL, y); y += 8; doc.setTextColor(30,30,30);
+  } else {
+    onbetaald.forEach(d => regel(
+      `${d.klant || 'Naamloos'} — ${BETALING_LABELS[d.betaling.status] || 'Niet ingevuld'}${d.bedrag ? ' — € ' + d.bedrag : ''}`,
+      primaryProductLabel(d)
+    ));
+  }
+  y += 4;
+
+  heading(`Vuil teruggebracht — aandacht nodig (${vuilTerug.length})`, [210,86,79]);
+  if(vuilTerug.length === 0){
+    doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(110,110,110);
+    doc.text('Niets vuil teruggekomen voor deze dag.', marginL, y); y += 8; doc.setTextColor(30,30,30);
+  } else {
+    vuilTerug.forEach(d => regel(
+      `${d.klant || 'Naamloos'} — ${d.afhaling.reinigingNodig ? 'Reiniging nodig' : 'Vuil'}`,
+      primaryProductLabel(d) + (d.afhaling.opmerkingen ? ' — ' + d.afhaling.opmerkingen : '')
+    ));
+  }
+
+  ensureSpace(16);
+  y += 4;
+  doc.setDrawColor(210,210,210); doc.line(marginL, y, pageW-marginL, y); y += 6;
+  doc.setFontSize(9); doc.setTextColor(140,140,140);
+  doc.text('Gegenereerd op ' + new Date().toLocaleString('nl-BE', { hour12:false }), marginL, y);
+
+  const fileName = 'dagrapport-' + dateStr + '.pdf';
+  try{
+    const blob = doc.output('blob');
+    const file = new File([blob], fileName, { type: 'application/pdf' });
+    if(navigator.canShare && navigator.canShare({ files: [file] })){
+      await navigator.share({ files: [file], title: 'Dagrapport ' + fmtDate(dateStr), text: fileName });
+      return;
+    }
+  }catch(err){ /* val terug op downloaden */ }
+  doc.save(fileName);
+}
 function renderUnassigned(){
   const openLeveringen = deliveries.filter(d => d.status === 'te-leveren' && !d.toegewezenAan && d.datum === perDriverDate)
     .sort((a,b)=> sortKeyFor(a,'tijdslot') - sortKeyFor(b,'tijdslot'));
@@ -1082,7 +1192,7 @@ async function generateLaadlijstPdf(teamId, dateStr){
   doc.save(fileName);
 }
 function bindAssignmentOverviewEvents(){
-  document.querySelectorAll('#unassigned-list .mini-row, #per-driver-list .mini-row').forEach(row=>{
+  document.querySelectorAll('#unassigned-list .mini-row, #per-driver-list .mini-row, #onbetaald-list .mini-row, #vuil-list .mini-row').forEach(row=>{
     row.addEventListener('click', ()=> setView('detail', row.dataset.id));
   });
   const perDriverDateInput = document.getElementById('per-driver-date');
@@ -1092,6 +1202,10 @@ function bindAssignmentOverviewEvents(){
       document.getElementById('per-driver-list').innerHTML = renderPerVehicle();
       const unassignedEl = document.getElementById('unassigned-list');
       if(unassignedEl) unassignedEl.innerHTML = renderUnassigned();
+      const onbetaaldEl = document.getElementById('onbetaald-list');
+      if(onbetaaldEl) onbetaaldEl.innerHTML = renderOnbetaald();
+      const vuilEl = document.getElementById('vuil-list');
+      if(vuilEl) vuilEl.innerHTML = renderVuilTerug();
       bindAssignmentOverviewEvents();
     });
   }
@@ -1129,8 +1243,20 @@ async function bindTeamEvents(){
       showToast(err.message);
     }
   });
+  document.getElementById('dagrapport-pdf-btn').addEventListener('click', async (e)=>{
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    const orig = btn.textContent;
+    btn.textContent = 'Bezig...';
+    try{ await generateDagrapportPdf(perDriverDate); }
+    catch(err){ showToast(err.message); }
+    btn.disabled = false;
+    btn.textContent = orig;
+  });
   await loadTeamsData();
   document.getElementById('unassigned-list').innerHTML = renderUnassigned();
+  document.getElementById('onbetaald-list').innerHTML = renderOnbetaald();
+  document.getElementById('vuil-list').innerHTML = renderVuilTerug();
   document.getElementById('per-driver-list').innerHTML = renderPerVehicle();
   bindAssignmentOverviewEvents();
   await loadDriverLocations();
