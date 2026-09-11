@@ -202,6 +202,7 @@ main{flex:1;padding:16px;}
 .card.status-geplaatst{border-left-color:var(--wacht);}
 .card.status-afgerond{border-left-color:var(--ok);opacity:0.72;}
 .card.status-geleverd-klaar{border-left-color:var(--ok);}
+.card.status-nog-niet-klaar{border-left-color:var(--line);opacity:0.7;}
 .card .row1{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;}
 .card .klant{font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:18px;}
 .card .tijd{font-size:13px;color:var(--text-dim);white-space:nowrap;}
@@ -1226,6 +1227,18 @@ function deliveredCardHtml(d){
     <div style="margin-top:6px;font-size:12.5px;color:var(--ok);font-weight:600">✓ Geleverd${tijd ? ' — ' + tijd : ''}</div>
   </div>`;
 }
+function notReadyCardHtml(d){
+  return `<div class="card status-nog-niet-klaar" data-id="${d.id}">
+    <div class="row1">
+      <div>
+        <div class="klant">${escapeHtml(primaryProductLabel(d))}</div>
+        <div class="adres" style="margin-top:1px">${escapeHtml(d.klant || 'Naamloos')}</div>
+      </div>
+      <div class="tijd">${escapeHtml(d.afhaaltijd || '')}</div>
+    </div>
+    <div style="margin-top:6px;font-size:12px;color:var(--text-dim)">🔒 Nog niet geleverd — afhaaltijd kan je hier al aanpassen</div>
+  </div>`;
+}
 function relevantDateForItem(d){
   return (d.status === 'geplaatst' || d.status === 'afgerond') ? (d.afhaaldatum || d.datum) : d.datum;
 }
@@ -1265,7 +1278,7 @@ function renderList(){
   renderedSections = {};
   const groups = {};
   function ensureGroup(key){
-    if(!groups[key]) groups[key] = { teLeveren:[], geleverdKlaar:[], opTeHalen:[], afgerond:[] };
+    if(!groups[key]) groups[key] = { teLeveren:[], geleverdKlaar:[], opTeHalen:[], afgerond:[], nogNietKlaar:[] };
     return groups[key];
   }
   visible.forEach(d=>{
@@ -1280,6 +1293,12 @@ function renderList(){
         const g = ensureGroup(afhaalKey);
         if(d.status === 'geplaatst') g.opTeHalen.push(d);
         else g.afgerond.push(d);
+      }
+    } else if(d.status === 'te-leveren'){
+      // Levering nog niet gebeurd: toon de geplande afhaling toch al, maar duidelijk als nog niet klaar
+      const afhaalKey = d.afhaaldatum || d.datum;
+      if(afhaalKey){
+        ensureGroup(afhaalKey).nogNietKlaar.push(d);
       }
     }
   });
@@ -1300,16 +1319,17 @@ function renderList(){
     if(allowedDateKeys && !allowedDateKeys.has(dateKey)) return;
     if(weekCutoff && dateKey > weekCutoff) return;
 
-    let { teLeveren, geleverdKlaar, opTeHalen, afgerond } = groups[dateKey];
+    let { teLeveren, geleverdKlaar, opTeHalen, afgerond, nogNietKlaar } = groups[dateKey];
     teLeveren = [...teLeveren].sort((a,b)=> sortKeyFor(a,'tijdslot') - sortKeyFor(b,'tijdslot'));
     geleverdKlaar = [...geleverdKlaar].sort((a,b)=> sortKeyFor(a,'tijdslot') - sortKeyFor(b,'tijdslot'));
     opTeHalen = [...opTeHalen].sort((a,b)=> sortKeyFor(a,'afhaaltijd') - sortKeyFor(b,'afhaaltijd'));
     afgerond = [...afgerond].sort((a,b)=> sortKeyFor(a,'afhaaltijd') - sortKeyFor(b,'afhaaltijd'));
+    nogNietKlaar = [...nogNietKlaar].sort((a,b)=> sortKeyFor(a,'afhaaltijd') - sortKeyFor(b,'afhaaltijd'));
 
     if(!showLeveringen){ teLeveren = []; geleverdKlaar = []; }
-    if(!showAfhalingen){ opTeHalen = []; afgerond = []; }
+    if(!showAfhalingen){ opTeHalen = []; afgerond = []; nogNietKlaar = []; }
 
-    if(teLeveren.length === 0 && geleverdKlaar.length === 0 && opTeHalen.length === 0 && afgerond.length === 0) return;
+    if(teLeveren.length === 0 && geleverdKlaar.length === 0 && opTeHalen.length === 0 && afgerond.length === 0 && nogNietKlaar.length === 0) return;
     anyDayShown = true;
 
     const teLeverenKey = dateKey + '|te-leveren';
@@ -1335,6 +1355,10 @@ function renderList(){
     if(opTeHalen.length){
       html += `<div class="section-label op-te-halen-label">Op te halen</div>`;
       opTeHalen.forEach(d => html += cardHtml(d, opTeHalenKey));
+    }
+    if(nogNietKlaar.length){
+      html += `<div class="section-label" style="color:var(--text-dim)"><span style="width:8px;height:8px;border-radius:50%;display:inline-block;background:var(--line);margin-right:6px"></span>Op te halen (nog niet klaar)</div>`;
+      nogNietKlaar.forEach(d => html += notReadyCardHtml(d));
     }
     if(afgerond.length){
       html += `<div class="section-label afgerond-label">Afgerond</div>`;
@@ -1582,6 +1606,17 @@ let earlyUnlocked = new Set();
 function daysBetween(a,b){
   return Math.round((new Date(b+'T00:00:00') - new Date(a+'T00:00:00')) / 86400000);
 }
+function renderArtikelenBlock(artikelen){
+  const lines = String(artikelen).split('\n').map(s=>s.trim()).filter(Boolean);
+  if(lines.length <= 1){
+    return `<div class="field" style="margin-bottom:8px"><div style="font-size:14px">${escapeHtml(lines[0]||artikelen)}</div></div>`;
+  }
+  return `<div class="field" style="margin-bottom:8px">
+    <div style="font-size:14px">${escapeHtml(lines[0])}</div>
+    <div id="artikelen-extra" style="display:none;font-size:14px;margin-top:4px;line-height:1.6">${lines.slice(1).map(l=>escapeHtml(l)).join('<br>')}</div>
+    <span class="link-toggle" id="artikelen-toggle" data-count="${lines.length}" style="margin-top:6px">▼ Toon alles (${lines.length} items)</span>
+  </div>`;
+}
 function renderDetail(d){
   const mode = d.status === 'afgerond' ? 'afhaling' : (d.status === 'geplaatst' ? 'afhaling' : 'plaatsing');
   checklistMode = mode;
@@ -1652,7 +1687,7 @@ function renderDetail(d){
 
   ${(d.artikelen || d.bedrag || d.ondergrond) ? `<div class="section">
     <h3>Artikelen &amp; details</h3>
-    ${d.artikelen ? `<div class="field" style="margin-bottom:8px"><div style="font-size:14px">${escapeHtml(d.artikelen)}</div></div>` : ''}
+    ${d.artikelen ? renderArtikelenBlock(d.artikelen) : ''}
     <div class="two-col" style="font-size:13px;color:var(--text-dim)">
       ${d.bedrag ? `<div>💶 Te ontvangen: <b style="color:var(--text)">€ ${escapeHtml(d.bedrag)}</b></div>` : ''}
       ${d.ondergrond ? `<div>🌱 Ondergrond: <b style="color:var(--text)">${escapeHtml(normalizeOndergrond(d.ondergrond))}</b></div>` : ''}
@@ -1866,6 +1901,17 @@ function resizeImageFile(file, maxWidth=900, quality=0.62){
 
 function bindDetailEvents(d){
   document.getElementById('back-btn').addEventListener('click', ()=> setView('list'));
+
+  const artikelenToggle = document.getElementById('artikelen-toggle');
+  if(artikelenToggle){
+    artikelenToggle.addEventListener('click', ()=>{
+      const extra = document.getElementById('artikelen-extra');
+      const open = extra.style.display !== 'none';
+      extra.style.display = open ? 'none' : '';
+      const count = artikelenToggle.dataset.count;
+      artikelenToggle.textContent = open ? `▼ Toon alles (${count} items)` : '▲ Toon minder';
+    });
+  }
 
   const wazeBtn = document.getElementById('waze-btn');
   if(wazeBtn){
