@@ -1221,14 +1221,13 @@ function weekCutoffISO(){
 function renderList(){
   const vehicleOccupancyPanel = renderVehicleOccupancyPanel();
   const filterBar = `
+    <div style="display:flex;align-items:center;justify-content:flex-end;margin-bottom:10px">
+      <span class="pill mij-toggle ${listFilter==='mij'?'active':''}" id="mij-toggle-pill" data-val="${listFilter==='mij'?'alle':'mij'}">${listFilter==='mij' ? '✓ Voor mij' : 'Voor mij'}</span>
+    </div>
     <div class="pillgroup" id="scope-filter-pills" style="margin-bottom:10px">
       <span class="pill ${dateScope==='vandaag'?'active':''}" data-val="vandaag">Vandaag</span>
       <span class="pill ${dateScope==='morgen'?'active':''}" data-val="morgen">Morgen</span>
       <span class="pill ${dateScope==='komende'?'active':''}" data-val="komende">Komende dagen</span>
-    </div>
-    <div class="pillgroup" id="list-filter-pills" style="margin-bottom:10px">
-      <span class="pill ${listFilter==='alle'?'active':''}" data-val="alle">Alles</span>
-      <span class="pill ${listFilter==='mij'?'active':''}" data-val="mij">Voor mij</span>
     </div>
     <div class="pillgroup" id="type-filter-pills" style="margin-bottom:16px">
       <span class="pill ${showLeveringen?'active':''}" data-val="leveringen">Leveringen</span>
@@ -1380,13 +1379,11 @@ function bindListEvents(){
       });
     });
   }
-  const filterPills = document.getElementById('list-filter-pills');
-  if(filterPills){
-    filterPills.querySelectorAll('.pill').forEach(p=>{
-      p.addEventListener('click', ()=>{
-        listFilter = p.dataset.val;
-        render();
-      });
+  const mijTogglePill = document.getElementById('mij-toggle-pill');
+  if(mijTogglePill){
+    mijTogglePill.addEventListener('click', ()=>{
+      listFilter = mijTogglePill.dataset.val;
+      render();
     });
   }
   const typePills = document.getElementById('type-filter-pills');
@@ -1589,8 +1586,8 @@ function renderDetail(d){
     </select>
   </div>
 
-  ${currentUser.rol === 'admin' ? `
   <div class="section" style="padding:12px 16px">
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">${currentUser.rol === 'admin' ? 'Wijs toe aan een voertuig.' : 'Nodig om over te dragen naar het andere voertuig? Pas het hier aan.'}</div>
     <div class="field" style="margin-bottom:10px">
       <label>Voertuig — levering</label>
       <select id="assign-select">
@@ -1606,12 +1603,6 @@ function renderDetail(d){
       </select>
     </div>
   </div>
-  ` : `
-  <div class="queue-note" style="margin-bottom:14px;text-align:left">
-    Levering: ${d.toegewezenAan ? (isAssignedToMe(d.toegewezenAan) ? '✓ aan jou/je team toegewezen.' : 'toegewezen aan ' + (d.toegewezenAan.type==='team'?'team ':'') + escapeHtml(d.toegewezenAan.naam) + '.') : 'open voor alle chauffeurs.'}<br>
-    Afhaling: ${d.toegewezenAanAfhaling ? (isAssignedToMe(d.toegewezenAanAfhaling) ? '✓ aan jou/je team toegewezen.' : 'toegewezen aan ' + (d.toegewezenAanAfhaling.type==='team'?'team ':'') + escapeHtml(d.toegewezenAanAfhaling.naam) + '.') : 'open voor alle chauffeurs.'}
-  </div>
-  `}
 
   ${d.afhaling.verzetAangevraagd ? `
   <div class="next-pickup-banner" style="background:rgba(217,164,65,0.12);border-color:rgba(217,164,65,0.4);color:var(--warn)">
