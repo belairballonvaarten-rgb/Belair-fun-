@@ -111,7 +111,7 @@ function emptyDeliveryServer() {
     handmatigeVolgorde: null,
     plaatsing: {
       correctGeplaatst: false, bevestiging: '', valmatten: false, verlengkabel: false,
-      aantalKabels: '', netjes: false, opmerkingen: '', tijdstip: '', bevestigd: false, bevestigdOp: ''
+      aantalKabels: '', aantalZandzakken: '', netjes: false, opmerkingen: '', tijdstip: '', bevestigd: false, bevestigdOp: ''
     },
     betaling: { status: '', opmerking: '' },
     afhaling: {
