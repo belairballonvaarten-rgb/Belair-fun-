@@ -643,7 +643,7 @@ function emptyDelivery(){
 function fmtDateTime(iso){
   if(!iso) return '';
   const d = new Date(iso);
-  return d.toLocaleDateString('nl-BE', { day:'numeric', month:'short' }) + ' om ' + d.toLocaleTimeString('nl-BE', { hour:'2-digit', minute:'2-digit' });
+  return d.toLocaleDateString('nl-BE', { day:'numeric', month:'short' }) + ' om ' + d.toLocaleTimeString('nl-BE', { hour:'2-digit', minute:'2-digit', hour12:false });
 }
 
 // ---------- Routing / render ----------
@@ -1339,13 +1339,12 @@ function renderDetail(d){
     Start route in Waze
   </button>` : `<div class="queue-note">Geen adres bekend voor deze boeking — vul het aan om Waze te kunnen gebruiken.</div>`}
 
-  ${(d.artikelen || d.bedrag || d.ondergrond || d.boekingsnummer) ? `<div class="section">
+  ${(d.artikelen || d.bedrag || d.ondergrond) ? `<div class="section">
     <h3>Artikelen &amp; details</h3>
     ${d.artikelen ? `<div class="field" style="margin-bottom:8px"><div style="font-size:14px">${escapeHtml(d.artikelen)}</div></div>` : ''}
     <div class="two-col" style="font-size:13px;color:var(--text-dim)">
       ${d.bedrag ? `<div>💶 Te ontvangen: <b style="color:var(--text)">€ ${escapeHtml(d.bedrag)}</b></div>` : ''}
       ${d.ondergrond ? `<div>🌱 Ondergrond: <b style="color:var(--text)">${escapeHtml(normalizeOndergrond(d.ondergrond))}</b></div>` : ''}
-      ${d.boekingsnummer ? `<div>🔖 Boekingsnr: <b style="color:var(--text)">${escapeHtml(d.boekingsnummer)}</b></div>` : ''}
     </div>
   </div>` : ''}
 
@@ -1892,7 +1891,6 @@ async function generateAndOfferPdf(d){
 
   heading('Klantgegevens');
   line('Dossiernummer', d.id);
-  if(d.boekingsnummer) line('Boekingsnummer', d.boekingsnummer);
   line('Klant', d.klant);
   line('Adres', d.adres);
   line('Telefoon', d.telefoon);
@@ -1955,7 +1953,7 @@ async function generateAndOfferPdf(d){
   y += 4;
   doc.setDrawColor(210,210,210); doc.line(marginL, y, pageW-marginL, y); y += 6;
   doc.setFontSize(9); doc.setTextColor(140,140,140);
-  doc.text('Gegenereerd op ' + new Date().toLocaleString('nl-BE'), marginL, y);
+  doc.text('Gegenereerd op ' + new Date().toLocaleString('nl-BE', { hour12:false }), marginL, y);
 
   const fileName = 'plaatsingsverslag-' + (d.klant || 'klant').replace(/[^a-z0-9]+/gi,'-').toLowerCase() + '-' + d.datum + '.pdf';
 
@@ -2005,9 +2003,13 @@ function dossierCardHtml(d){
           <div class="klant">${escapeHtml(primaryProductLabel(d))} ${factuurStar}</div>
           <div class="adres" style="margin-top:1px">${escapeHtml(d.klant)}</div>
         </div>
-        <div style="display:flex;align-items:center;gap:6px;">
-          <div class="tijd">${fmtDate(d.datum)}</div>
-          ${deleteBtn}
+        <div style="text-align:right">
+          <div style="display:flex;align-items:center;gap:6px;justify-content:flex-end">
+            <div class="tijd">${fmtDate(d.datum)}</div>
+            ${deleteBtn}
+          </div>
+          ${d.ondergrond ? `<div style="font-size:11.5px;color:var(--text-dim);margin-top:4px">🌱 ${escapeHtml(normalizeOndergrond(d.ondergrond))}</div>` : ''}
+          ${d.bedrag ? `<div style="font-size:11.5px;color:var(--text-dim);margin-top:2px">💶 € ${escapeHtml(d.bedrag)}</div>` : ''}
         </div>
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px">
