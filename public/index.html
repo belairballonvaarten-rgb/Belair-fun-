@@ -2071,6 +2071,7 @@ function renderDetail(d){
   <div class="section">
     <h3>Betaling</h3>
     <div class="pillgroup" id="betaling-pills">
+      ${pill('reeds-voldaan','Reeds voldaan', d.betaling.status)}
       ${pill('voldaan-cash','Voldaan (cash)', d.betaling.status)}
       ${pill('voldaan-overschrijving','Voldaan (overschrijving)', d.betaling.status)}
       ${pill('factuur','Factuur opmaken', d.betaling.status)}
@@ -2649,7 +2650,7 @@ async function generateAndOfferPdf(d){
   line('Opmerkingen', d.plaatsing.opmerkingen || '—');
   y += 2;
 
-  const betalingLabel = { 'voldaan-cash':'Voldaan (cash ter plaatse)', 'voldaan-overschrijving':'Voldaan via overschrijving', 'factuur':'Factuur wordt opgemaakt' }[d.betaling.status] || '—';
+  const betalingLabel = { 'reeds-voldaan':'Reeds voldaan', 'voldaan-cash':'Voldaan (cash ter plaatse)', 'voldaan-overschrijving':'Voldaan via overschrijving', 'factuur':'Factuur wordt opgemaakt' }[d.betaling.status] || '—';
   heading('Betaling');
   line('Status', betalingLabel);
   line('Opmerking', d.betaling.opmerking || '—');
