@@ -32,6 +32,25 @@
   --danger:#D2564F;
   --radius:4px;
 }
+[data-theme="light"]{
+  --bg:#F2F3F5;
+  --panel:#FFFFFF;
+  --panel-alt:#EDEFF2;
+  --line:#D8DCE1;
+  --text:#20242A;
+  --text-dim:#5C6470;
+  --accent:#E8631E;
+  --accent-dim:#B94F19;
+  --ok:#1F8F6B;
+  --wacht:#2B6FD1;
+  --warn:#B8791C;
+  --danger:#C23F38;
+}
+[data-theme="light"] .cal-cell.cal-active{background:rgba(194,63,56,0.16);color:#A6332D;}
+[data-theme="light"] .cal-dot.cal-active{background:#C23F38;}
+[data-theme="light"] .cal-cell.cal-selected{box-shadow:inset 0 0 0 2px #20242A;}
+[data-theme="light"] .card-delete-btn,
+[data-theme="light"] .team-row .rm{color:var(--danger);}
 *{box-sizing:border-box;}
 html,body{margin:0;padding:0;}
 body{
@@ -410,6 +429,7 @@ button{font-family:'Inter',sans-serif;}
   font-size:12.5px;color:var(--text-dim);
 }
 .user-chip .logout{color:var(--accent);cursor:pointer;font-weight:600;}
+.theme-toggle{cursor:pointer;font-size:15px;margin-right:2px;}
 .mini-row{padding:9px 0;border-bottom:1px solid var(--line);cursor:pointer;}
 .mini-row:last-child{border-bottom:none;}
 .mini-row-title{font-size:14px;}
@@ -617,6 +637,7 @@ function emptyDelivery(){
       valmatten: false,
       verlengkabel: false,
       aantalKabels: '',
+      aantalZandzakken: '',
       netjes: false,
       opmerkingen: '',
       tijdstip: '',
@@ -660,9 +681,12 @@ function render(){
   const main = document.getElementById('main');
   const sub = document.getElementById('topbarSub');
   const action = document.getElementById('topbarAction');
-  action.innerHTML = `<div class="user-chip">${escapeHtml(currentUser ? currentUser.naam : '')}<span class="logout" id="logout-btn">Uitloggen</span></div>`;
+  const themeIcon = currentTheme === 'light' ? '🌙' : '☀️';
+  action.innerHTML = `<div class="user-chip"><span class="theme-toggle" id="theme-toggle-btn" title="Wissel donker/licht">${themeIcon}</span>${escapeHtml(currentUser ? currentUser.naam : '')}<span class="logout" id="logout-btn">Uitloggen</span></div>`;
   const logoutBtn = document.getElementById('logout-btn');
   if(logoutBtn) logoutBtn.addEventListener('click', ()=> doLogout());
+  const themeToggleBtn = document.getElementById('theme-toggle-btn');
+  if(themeToggleBtn) themeToggleBtn.addEventListener('click', toggleTheme);
 
   try{
     if(view === 'list'){
@@ -706,7 +730,7 @@ let teamUsers = [];
 function renderTeam(){
   return `
   <div class="section">
-    <h3>Per chauffeur</h3>
+    <h3>Per voertuig</h3>
     <div class="field" style="margin-bottom:14px">
       <label>Dag bekijken</label>
       <input type="date" id="per-driver-date" value="${perDriverDate}">
@@ -723,7 +747,7 @@ function renderTeam(){
   </div>
   <div class="section">
     <h3>Nog toe te wijzen</h3>
-    <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">Voor de dag die je hierboven bij "Per chauffeur" hebt gekozen.</div>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">Voor de dag die je hierboven bij "Per voertuig" hebt gekozen.</div>
     <div id="unassigned-list">Laden...</div>
   </div>
   <div class="section">
@@ -808,24 +832,26 @@ function renderUnassigned(){
   }
   return html;
 }
-function renderPerDriver(){
-  if(teamUsers.length === 0) return 'Nog geen teamleden.';
-  const blocks = teamUsers.map(u=>{
-    const leveringen = deliveries.filter(d => assignmentMatchesUser(d.toegewezenAan, u.id) && d.datum === perDriverDate)
+function renderPerVehicle(){
+  if(teamsData.length === 0) return `<div class="queue-note" style="text-align:left">Nog geen voertuigen aangemaakt.</div>`;
+  const blocks = teamsData.map(t=>{
+    const leveringen = deliveries.filter(d => d.toegewezenAan && d.toegewezenAan.type==='team' && d.toegewezenAan.id===t.id && d.datum === perDriverDate)
       .sort((a,b)=> sortKeyFor(a,'tijdslot') - sortKeyFor(b,'tijdslot'));
-    const afhalingen = deliveries.filter(d => assignmentMatchesUser(d.toegewezenAanAfhaling, u.id) && (d.afhaaldatum || d.datum) === perDriverDate)
+    const afhalingen = deliveries.filter(d => d.toegewezenAanAfhaling && d.toegewezenAanAfhaling.type==='team' && d.toegewezenAanAfhaling.id===t.id && (d.afhaaldatum || d.datum) === perDriverDate)
       .sort((a,b)=> sortKeyFor(a,'afhaaltijd') - sortKeyFor(b,'afhaaltijd'));
     const totaal = leveringen.length + afhalingen.length;
     if(totaal === 0) return '';
     const afgerond = leveringen.filter(d=>d.status==='afgerond').length + afhalingen.filter(d=>d.status==='afgerond').length;
+    const bemanning = t.leden.map(l=>escapeHtml(l.naam)).join(', ') || 'Geen bemanning';
     return `<details class="driver-block" open>
-      <summary>${escapeHtml(u.naam)} <span class="driver-count">${afgerond}/${totaal} afgerond</span></summary>
+      <summary>${escapeHtml(t.naam)} <span class="driver-count">${afgerond}/${totaal} afgerond</span></summary>
+      <div style="font-size:11.5px;color:var(--text-dim);margin:-4px 0 8px">Bemanning: ${bemanning}</div>
       ${leveringen.length ? `<div class="section-label te-leveren-label">Leveringen</div>${leveringen.map(d=>miniRow(d,'Levering')).join('')}` : ''}
       ${afhalingen.length ? `<div class="section-label op-te-halen-label">Afhalingen</div>${afhalingen.map(d=>miniRow(d,'Afhaling')).join('')}` : ''}
     </details>`;
   }).filter(Boolean);
   if(blocks.length === 0){
-    return `<div class="queue-note" style="text-align:left">Niemand heeft die dag iets gepland.</div>`;
+    return `<div class="queue-note" style="text-align:left">Geen enkel voertuig heeft die dag iets gepland.</div>`;
   }
   return blocks.join('');
 }
@@ -837,7 +863,7 @@ function bindAssignmentOverviewEvents(){
   if(perDriverDateInput){
     perDriverDateInput.addEventListener('change', (e)=>{
       perDriverDate = e.target.value || todayISO();
-      document.getElementById('per-driver-list').innerHTML = renderPerDriver();
+      document.getElementById('per-driver-list').innerHTML = renderPerVehicle();
       const unassignedEl = document.getElementById('unassigned-list');
       if(unassignedEl) unassignedEl.innerHTML = renderUnassigned();
       bindAssignmentOverviewEvents();
@@ -898,7 +924,7 @@ async function bindTeamEvents(){
   await refreshTeamList();
   await loadTeamsData();
   document.getElementById('unassigned-list').innerHTML = renderUnassigned();
-  document.getElementById('per-driver-list').innerHTML = renderPerDriver();
+  document.getElementById('per-driver-list').innerHTML = renderPerVehicle();
   bindAssignmentOverviewEvents();
   await loadDriverLocations();
 }
@@ -1056,6 +1082,7 @@ async function refreshTeamList(){
 // ---------- LIST VIEW ----------
 let listFilter = 'alle'; // 'alle' | 'mij'
 let typeFilter = 'alle'; // 'alle' | 'leveringen' | 'afhalingen'
+let dateScope = 'vandaag'; // 'vandaag' | 'komende'
 let renderedSections = {}; // sectionKey -> geordende array van delivery-ids (voor omhoog/omlaag knoppen)
 
 function timeMinutes(str){
@@ -1068,6 +1095,54 @@ function sortKeyFor(d, timeField){
   if(d.handmatigeVolgorde != null) return d.handmatigeVolgorde;
   const mins = timeMinutes(d[timeField]);
   return 100000 + (mins != null ? mins : 9999);
+}
+let vehiclePanelOpen = false;
+function renderVehicleOccupancyPanel(){
+  const toggleLabel = vehiclePanelOpen ? 'Huidige bezetting ▲' : 'Huidige bezetting ▼';
+  let inner = '';
+  if(vehiclePanelOpen){
+    if(teamsData.length === 0){
+      inner = `<div class="queue-note" style="text-align:left">Nog geen voertuigen aangemaakt.</div>`;
+    } else {
+      inner = teamsData.map(t=>{
+        const isMine = myTeamIds.includes(t.id);
+        if(currentUser.rol === 'admin'){
+          return `<details class="driver-block" data-occ-team="${t.id}">
+            <summary>${escapeHtml(t.naam)} <span class="driver-count">${t.leden.map(l=>escapeHtml(l.naam)).join(', ') || 'Geen bemanning'}</span></summary>
+            <div style="margin-top:10px">
+              <div class="occ-checkboxes">
+                ${assignableUsers.map(u=>`
+                  <label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:14px;cursor:pointer">
+                    <input type="checkbox" value="${u.id}" class="occ-cb" ${t.leden.some(l=>l.id===u.id)?'checked':''}> ${escapeHtml(u.naam)}
+                  </label>
+                `).join('')}
+              </div>
+              <button class="btn small ok" style="margin-top:8px" data-occ-save="${t.id}">Bemanning opslaan</button>
+            </div>
+          </details>`;
+        }
+        return `<div class="team-row">
+          <div>
+            <div class="naam">${escapeHtml(t.naam)} ${isMine ? '<span class="star-badge" title="Jouw voertuig">●</span>' : ''}</div>
+            <div class="rolbadge">${t.leden.map(l=>escapeHtml(l.naam)).join(', ') || 'Geen bemanning'}</div>
+          </div>
+        </div>`;
+      }).join('');
+      if(currentUser.rol !== 'admin'){
+        inner += `<div class="field" style="margin-top:12px">
+          <label>Jouw voertuig</label>
+          <select id="my-vehicle-select">
+            <option value="">Niet toegewezen</option>
+            ${teamsData.map(t=>`<option value="${t.id}" ${myTeamIds.includes(t.id)?'selected':''}>${escapeHtml(t.naam)}</option>`).join('')}
+          </select>
+        </div>`;
+      }
+    }
+  }
+  return `<div class="section" style="padding:12px 16px;margin-bottom:14px">
+    <div class="cal-nav" id="vehicle-panel-toggle" style="width:auto;height:auto;padding:6px 10px;font-size:13px;font-family:'Barlow Condensed',sans-serif;font-weight:600;display:inline-flex;">${toggleLabel}</div>
+    ${vehiclePanelOpen ? `<div style="margin-top:12px">${inner}</div>` : ''}
+  </div>`;
 }
 function isAssignedToMe(assignment){
   if(!assignment) return false;
@@ -1136,18 +1211,12 @@ function weekCutoffISO(){
   return d.toISOString().slice(0,10);
 }
 function renderList(){
-  const myVehicleWidget = currentUser.rol !== 'admin' ? `
-    <div class="section" style="padding:12px 16px;margin-bottom:14px">
-      <div class="field" style="margin-bottom:0">
-        <label>Jouw voertuig</label>
-        <select id="my-vehicle-select">
-          <option value="">Niet toegewezen</option>
-          ${teamsData.map(t=>`<option value="${t.id}" ${myTeamIds.includes(t.id)?'selected':''}>${escapeHtml(t.naam)}</option>`).join('')}
-        </select>
-      </div>
-    </div>
-  ` : '';
+  const vehicleOccupancyPanel = renderVehicleOccupancyPanel();
   const filterBar = `
+    <div class="pillgroup" id="scope-filter-pills" style="margin-bottom:10px">
+      <span class="pill ${dateScope==='vandaag'?'active':''}" data-val="vandaag">Vandaag</span>
+      <span class="pill ${dateScope==='komende'?'active':''}" data-val="komende">Komende leveringen</span>
+    </div>
     <div class="pillgroup" id="list-filter-pills" style="margin-bottom:10px">
       <span class="pill ${listFilter==='alle'?'active':''}" data-val="alle">Alles</span>
       <span class="pill ${listFilter==='mij'?'active':''}" data-val="mij">Voor mij</span>
@@ -1157,13 +1226,16 @@ function renderList(){
       <span class="pill ${typeFilter==='leveringen'?'active':''}" data-val="leveringen">Leveringen</span>
       <span class="pill ${typeFilter==='afhalingen'?'active':''}" data-val="afhalingen">Afhalingen</span>
     </div>
-    ${currentUser.rol !== 'admin' ? `<div class="queue-note" style="margin-bottom:16px;text-align:left">Je ziet hier de planning tot en met de komende week. Voor de volledige planning: vraag de admin.</div>` : ''}
+    ${(dateScope==='komende' && currentUser.rol !== 'admin') ? `<div class="queue-note" style="margin-bottom:16px;text-align:left">Je ziet hier de planning tot en met de komende week. Voor de volledige planning: vraag de admin.</div>` : ''}
   `;
   let visible = listFilter === 'mij'
     ? deliveries.filter(d => isAssignedToMe(d.toegewezenAan) || isAssignedToMe(d.toegewezenAanAfhaling))
     : deliveries;
 
-  if(currentUser.rol !== 'admin'){
+  if(dateScope === 'vandaag'){
+    const today = todayISO();
+    visible = visible.filter(d => relevantDateForItem(d) === today);
+  } else if(currentUser.rol !== 'admin'){
     const cutoff = weekCutoffISO();
     visible = visible.filter(d => {
       const datum = relevantDateForItem(d);
@@ -1172,13 +1244,13 @@ function renderList(){
   }
 
   if(deliveries.length === 0){
-    return myVehicleWidget + `<div class="empty">
+    return vehicleOccupancyPanel + `<div class="empty">
       <div class="big">Nog geen leveringen</div>
       Voeg een levering toe via "Nieuw" onderaan.
     </div>`;
   }
   if(visible.length === 0){
-    return myVehicleWidget + filterBar + `<div class="empty"><div class="big">Niets gevonden</div>Bekijk "Alles" of vraag de admin naar de volledige planning.</div>`;
+    return vehicleOccupancyPanel + filterBar + `<div class="empty"><div class="big">Niets gevonden</div>${dateScope==='vandaag' ? 'Niets gepland voor vandaag. Bekijk "Komende leveringen" voor de rest.' : 'Bekijk "Alles" of vraag de admin naar de volledige planning.'}</div>`;
   }
 
   renderedSections = {};
@@ -1189,7 +1261,7 @@ function renderList(){
     groups[key].push(d);
   });
 
-  let html = myVehicleWidget + filterBar;
+  let html = vehicleOccupancyPanel + filterBar;
   let anyDayShown = false;
   Object.keys(groups).sort().forEach(dateKey=>{
     const items = groups[dateKey];
@@ -1285,6 +1357,15 @@ function bindListEvents(){
       moveCard(sectionKey, btn.dataset.id, btn.dataset.dir);
     });
   });
+  const scopePills = document.getElementById('scope-filter-pills');
+  if(scopePills){
+    scopePills.querySelectorAll('.pill').forEach(p=>{
+      p.addEventListener('click', ()=>{
+        dateScope = p.dataset.val;
+        render();
+      });
+    });
+  }
   const filterPills = document.getElementById('list-filter-pills');
   if(filterPills){
     filterPills.querySelectorAll('.pill').forEach(p=>{
@@ -1319,6 +1400,26 @@ function bindListEvents(){
       }
     });
   }
+  const vehiclePanelToggle = document.getElementById('vehicle-panel-toggle');
+  if(vehiclePanelToggle){
+    vehiclePanelToggle.addEventListener('click', ()=>{
+      vehiclePanelOpen = !vehiclePanelOpen;
+      render();
+    });
+  }
+  document.querySelectorAll('[data-occ-save]').forEach(btn=>{
+    btn.addEventListener('click', async (e)=>{
+      e.preventDefault();
+      const details = btn.closest('[data-occ-team]');
+      const memberIds = Array.from(details.querySelectorAll('.occ-cb:checked')).map(cb=>parseInt(cb.value,10));
+      try{
+        await apiFetch('/api/teams/' + btn.dataset.occSave, { method:'PUT', body: JSON.stringify({ memberIds }) });
+        teamsData = await apiFetch('/api/teams');
+        showToast('Bemanning opgeslagen');
+        render();
+      }catch(err){ showToast(err.message); }
+    });
+  });
 }
 
 // ---------- NEW DELIVERY FORM ----------
@@ -1437,9 +1538,18 @@ function wazeUrl(adres){
   return 'https://waze.com/ul?q=' + encodeURIComponent(adres) + '&navigate=yes';
 }
 
+let earlyUnlocked = new Set();
+function daysBetween(a,b){
+  return Math.round((new Date(b+'T00:00:00') - new Date(a+'T00:00:00')) / 86400000);
+}
 function renderDetail(d){
   const mode = d.status === 'afgerond' ? 'afhaling' : (d.status === 'geplaatst' ? 'afhaling' : 'plaatsing');
   checklistMode = mode;
+  const today = todayISO();
+  const plaatsingEarlyDays = (!d.plaatsing.bevestigd && d.datum && d.datum > today) ? daysBetween(today, d.datum) : 0;
+  const isPlaatsingEarly = plaatsingEarlyDays > 0 && !earlyUnlocked.has(d.id+':plaatsing');
+  const afhalingEarlyDays = (d.plaatsing.bevestigd && !d.afhaling.bevestigd && d.afhaaldatum && d.afhaaldatum > today) ? daysBetween(today, d.afhaaldatum) : 0;
+  const isAfhalingEarly = afhalingEarlyDays > 0 && !earlyUnlocked.has(d.id+':afhaling');
   return `
   <div class="back" id="back-btn">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg>
@@ -1467,19 +1577,17 @@ function renderDetail(d){
   ${currentUser.rol === 'admin' ? `
   <div class="section" style="padding:12px 16px">
     <div class="field" style="margin-bottom:10px">
-      <label>Chauffeur/team — levering</label>
+      <label>Voertuig — levering</label>
       <select id="assign-select">
-        <option value="">Niet toegewezen — alle chauffeurs</option>
-        ${teamsData.length ? `<optgroup label="Voertuigen">${teamsData.map(t=>`<option value="team:${t.id}" ${d.toegewezenAan && d.toegewezenAan.type==='team' && d.toegewezenAan.id===t.id ? 'selected':''}>👥 ${escapeHtml(t.naam)}</option>`).join('')}</optgroup>` : ''}
-        <optgroup label="Individueel">${assignableUsers.map(u=>`<option value="user:${u.id}" ${d.toegewezenAan && d.toegewezenAan.type!=='team' && d.toegewezenAan.id===u.id ? 'selected':''}>${escapeHtml(u.naam)}</option>`).join('')}</optgroup>
+        <option value="">Niet toegewezen — alle voertuigen</option>
+        ${teamsData.map(t=>`<option value="team:${t.id}" ${d.toegewezenAan && d.toegewezenAan.type==='team' && d.toegewezenAan.id===t.id ? 'selected':''}>${escapeHtml(t.naam)}</option>`).join('')}
       </select>
     </div>
     <div class="field" style="margin-bottom:0">
-      <label>Chauffeur/team — afhaling</label>
+      <label>Voertuig — afhaling</label>
       <select id="assign-select-afhaling">
-        <option value="">Niet toegewezen — alle chauffeurs</option>
-        ${teamsData.length ? `<optgroup label="Voertuigen">${teamsData.map(t=>`<option value="team:${t.id}" ${d.toegewezenAanAfhaling && d.toegewezenAanAfhaling.type==='team' && d.toegewezenAanAfhaling.id===t.id ? 'selected':''}>👥 ${escapeHtml(t.naam)}</option>`).join('')}</optgroup>` : ''}
-        <optgroup label="Individueel">${assignableUsers.map(u=>`<option value="user:${u.id}" ${d.toegewezenAanAfhaling && d.toegewezenAanAfhaling.type!=='team' && d.toegewezenAanAfhaling.id===u.id ? 'selected':''}>${escapeHtml(u.naam)}</option>`).join('')}</optgroup>
+        <option value="">Niet toegewezen — alle voertuigen</option>
+        ${teamsData.map(t=>`<option value="team:${t.id}" ${d.toegewezenAanAfhaling && d.toegewezenAanAfhaling.type==='team' && d.toegewezenAanAfhaling.id===t.id ? 'selected':''}>${escapeHtml(t.naam)}</option>`).join('')}
       </select>
     </div>
   </div>
@@ -1528,16 +1636,20 @@ function renderDetail(d){
   <div class="section">
     <h3>Afhaaltijd bevestigen</h3>
     <div class="two-col">
-      <div class="field"><label>Afhaaldatum</label><input type="date" id="afhaaldatum" value="${d.afhaaldatum||''}" ${d.plaatsing.bevestigd?'disabled':''}></div>
-      <div class="field"><label>Afhaaltijd</label><input type="time" id="afhaaltijd" value="${d.afhaaltijd||''}" ${d.plaatsing.bevestigd?'disabled':''}></div>
+      <div class="field"><label>Afhaaldatum</label><input type="date" id="afhaaldatum" value="${d.afhaaldatum||''}"></div>
+      <div class="field"><label>Afhaaltijd</label><input type="time" id="afhaaltijd" value="${d.afhaaltijd||''}"></div>
     </div>
   </div>
 
   <div class="section">
     <h3>Checklist bij plaatsing</h3>
+    ${isPlaatsingEarly ? `<div class="queue-note" style="margin-bottom:12px;text-align:left;border-color:rgba(217,164,65,0.5);color:var(--warn)">
+      Deze levering is pas voorzien op <b>${fmtDate(d.datum)}</b> (over ${plaatsingEarlyDays} dag${plaatsingEarlyDays===1?'':'en'}). Wenst u deze nu reeds te leveren?
+      <div class="stack" style="margin-top:8px"><button class="btn small ok" id="early-confirm-plaatsing">Ja, nu al leveren</button></div>
+    </div>` : ''}
     ${d.ondergrond ? `<div class="queue-note" style="margin-bottom:12px;text-align:left">Ondergrond volgens planning: <b>${escapeHtml(normalizeOndergrond(d.ondergrond))}</b></div>` : ''}
     ${d.plaatsing.bevestigd ? `<div class="locked-banner">✓ Levering bevestigd — ${fmtDateTime(d.plaatsing.bevestigdOp)}</div>` : ''}
-    <div class="${d.plaatsing.bevestigd ? 'locked-block' : ''}">
+    <div class="${(d.plaatsing.bevestigd || isPlaatsingEarly) ? 'locked-block' : ''}">
       ${renderPlaatsingChecklist(d)}
     </div>
   </div>
@@ -1559,16 +1671,20 @@ function renderDetail(d){
   </div>
 
   <div class="stack" style="margin-bottom:14px">
-    ${!d.plaatsing.bevestigd
+    ${isPlaatsingEarly ? '' : (!d.plaatsing.bevestigd
       ? `<button class="btn ok" id="confirm-plaatsing">Levering bevestigen</button>`
-      : `<button class="btn secondary" id="edit-plaatsing">Levering bewerken</button>`}
+      : `<button class="btn secondary" id="edit-plaatsing">Levering bewerken</button>`)}
   </div>
 
   ${d.plaatsing.bevestigd ? `
   <div class="section">
     <h3>Checklist bij afhaling</h3>
+    ${isAfhalingEarly ? `<div class="queue-note" style="margin-bottom:12px;text-align:left;border-color:rgba(217,164,65,0.5);color:var(--warn)">
+      Deze afhaling is pas voorzien op <b>${fmtDate(d.afhaaldatum)}</b> (over ${afhalingEarlyDays} dag${afhalingEarlyDays===1?'':'en'}). Wenst u deze nu reeds af te halen?
+      <div class="stack" style="margin-top:8px"><button class="btn small ok" id="early-confirm-afhaling">Ja, nu al afhalen</button></div>
+    </div>` : ''}
     ${d.afhaling.bevestigd ? `<div class="locked-banner">✓ Afhaling bevestigd — ${fmtDateTime(d.afhaling.bevestigdOp)}</div>` : ''}
-    <div class="${d.afhaling.bevestigd ? 'locked-block' : ''}">
+    <div class="${(d.afhaling.bevestigd || isAfhalingEarly) ? 'locked-block' : ''}">
       ${renderAfhalingChecklist(d)}
     </div>
   </div>
@@ -1576,10 +1692,10 @@ function renderDetail(d){
 
   ${d.plaatsing.bevestigd ? `
   <div class="stack" style="margin-bottom:14px">
-    ${!d.afhaling.bevestigd
+    ${isAfhalingEarly ? '' : (!d.afhaling.bevestigd
       ? `<button class="btn ok" id="confirm-afhaling">Afhaling bevestigen</button>`
-      : `<button class="btn secondary" id="edit-afhaling">Afhaling bewerken</button>`}
-    ${(!d.afhaling.bevestigd && !d.afhaling.verzetAangevraagd) ? `<button class="btn secondary" id="request-verzet">Afhaling vandaag niet gelukt — verzet aanvragen</button>` : ''}
+      : `<button class="btn secondary" id="edit-afhaling">Afhaling bewerken</button>`)}
+    ${(!d.afhaling.bevestigd && !d.afhaling.verzetAangevraagd && !isAfhalingEarly) ? `<button class="btn secondary" id="request-verzet">Afhaling vandaag niet gelukt — verzet aanvragen</button>` : ''}
   </div>` : ''}
 
   ${(d.afhaling.bevestigd && appSettings.googleReviewUrl) ? `
@@ -1629,6 +1745,10 @@ function renderPlaatsingChecklist(d){
         ${bevestigingOpties.map(([val,label]) => pill(val,label,p.bevestiging)).join('')}
       </div>
     </div>
+    <div class="field" id="aantal-zandzakken-wrap" style="${p.bevestiging==='zandzakken'?'':'display:none'};margin-top:8px">
+      <label>Aantal zandzakken</label>
+      <input type="number" min="0" id="aantal-zandzakken" value="${escapeHtml(p.aantalZandzakken||'')}">
+    </div>
     ${checkRow('chk-valmatten','Valmatten gebruikt', isHard ? 'Verplicht op harde ondergrond' : '', p.valmatten)}
     ${checkRow('chk-kabel','Verlengkabel gebruikt','', p.verlengkabel)}
     <div class="field" id="aantal-kabels-wrap" style="${p.verlengkabel?'':'display:none'};margin-top:8px">
@@ -1653,7 +1773,7 @@ function renderAfhalingChecklist(d){
   return `
     ${p.valmatten ? checkRow('chk-valmatten-terug','Valmatten terug mee','', a.valmattenTerug) : ''}
     ${p.verlengkabel ? checkRow('chk-kabels-terug', 'Verlengkabel' + (p.aantalKabels ? ' (' + escapeHtml(p.aantalKabels) + 'x)' : '') + ' terug mee','', a.kabelsTerug) : ''}
-    ${(p.bevestiging && p.bevestiging !== 'geen') ? checkRow('chk-bevestiging-terug', bevestigingLabel(p.bevestiging) + ' losgemaakt en terug mee','', a.bevestigingTerug) : ''}
+    ${(p.bevestiging && p.bevestiging !== 'geen') ? checkRow('chk-bevestiging-terug', bevestigingLabel(p.bevestiging) + (p.bevestiging==='zandzakken' && p.aantalZandzakken ? ' (' + escapeHtml(p.aantalZandzakken) + 'x)' : '') + ' losgemaakt en terug mee','', a.bevestigingTerug) : ''}
     ${checkRow('chk-nat-vuil','Kasteel nat of vuil','', a.natOfVuil)}
     ${checkRow('chk-reiniging','Reiniging nodig','', a.reinigingNodig)}
     <div class="field" style="margin-top:10px">
@@ -1860,6 +1980,8 @@ function bindDetailEvents(d){
     p.addEventListener('click', ()=>{
       document.querySelectorAll('#bevestiging-pills .pill').forEach(x=>x.classList.remove('active'));
       p.classList.add('active');
+      const zandzakkenWrap = document.getElementById('aantal-zandzakken-wrap');
+      if(zandzakkenWrap) zandzakkenWrap.style.display = p.dataset.val === 'zandzakken' ? '' : 'none';
     });
   });
   document.querySelectorAll('#betaling-pills .pill').forEach(p=>{
@@ -1901,6 +2023,20 @@ function bindDetailEvents(d){
     });
   }
 
+  const earlyConfirmPlaatsingBtn = document.getElementById('early-confirm-plaatsing');
+  if(earlyConfirmPlaatsingBtn){
+    earlyConfirmPlaatsingBtn.addEventListener('click', ()=>{
+      earlyUnlocked.add(d.id+':plaatsing');
+      setView('detail', d.id);
+    });
+  }
+  const earlyConfirmAfhalingBtn = document.getElementById('early-confirm-afhaling');
+  if(earlyConfirmAfhalingBtn){
+    earlyConfirmAfhalingBtn.addEventListener('click', ()=>{
+      earlyUnlocked.add(d.id+':afhaling');
+      setView('detail', d.id);
+    });
+  }
   const confirmPlaatsingBtn = document.getElementById('confirm-plaatsing');
   if(confirmPlaatsingBtn){
     confirmPlaatsingBtn.addEventListener('click', async ()=>{
@@ -1990,6 +2126,8 @@ function collectFromForm(d){
   d.plaatsing.verlengkabel = checkedVal('chk-kabel');
   const aantalKabelsEl = document.getElementById('aantal-kabels');
   d.plaatsing.aantalKabels = aantalKabelsEl ? aantalKabelsEl.value : d.plaatsing.aantalKabels;
+  const aantalZandzakkenEl = document.getElementById('aantal-zandzakken');
+  d.plaatsing.aantalZandzakken = aantalZandzakkenEl ? aantalZandzakkenEl.value : d.plaatsing.aantalZandzakken;
   d.plaatsing.netjes = checkedVal('chk-netjes');
   const plaatsingOpmEl = document.getElementById('plaatsing-opmerkingen');
   d.plaatsing.opmerkingen = plaatsingOpmEl ? plaatsingOpmEl.value : d.plaatsing.opmerkingen;
@@ -2084,6 +2222,7 @@ async function generateAndOfferPdf(d){
   heading('Checklist bij plaatsing');
   checkline('Springkasteel correct geplaatst', d.plaatsing.correctGeplaatst);
   line('Bevestiging', bevestigingLabel(d.plaatsing.bevestiging) || (d.plaatsing.bevestiging === 'geen' ? 'Geen' : '—'));
+  if(d.plaatsing.bevestiging === 'zandzakken') line('Aantal zandzakken', d.plaatsing.aantalZandzakken || '—');
   checkline('Valmatten gebruikt', d.plaatsing.valmatten);
   checkline('Verlengkabel gebruikt', d.plaatsing.verlengkabel);
   if(d.plaatsing.verlengkabel) line('Aantal verlengkabels', d.plaatsing.aantalKabels || '—');
@@ -2415,6 +2554,16 @@ async function doLogin(){
     localStorage.setItem('bf-token', authToken);
     showApp();
   }catch(err){ document.getElementById('a-error').textContent = err.message; }
+}
+
+// ---------- Thema (donker/licht, persoonlijke voorkeur) ----------
+let currentTheme = localStorage.getItem('bf-theme') || 'dark';
+document.documentElement.setAttribute('data-theme', currentTheme);
+function toggleTheme(){
+  currentTheme = currentTheme === 'light' ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', currentTheme);
+  localStorage.setItem('bf-theme', currentTheme);
+  render();
 }
 
 // ---------- Init ----------
