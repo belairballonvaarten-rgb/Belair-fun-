@@ -220,12 +220,12 @@ main{flex:1;padding:16px;}
 
 .card.card-mine{border-left-color:var(--accent);background:linear-gradient(90deg, rgba(232,99,30,0.08), var(--panel) 40%);}
 .assign-badge{
-  font-size:11px;font-family:'Barlow Condensed',sans-serif;font-weight:600;
-  padding:2px 8px;border-radius:10px;letter-spacing:0.3px;
+  font-size:12px;font-family:'Barlow Condensed',sans-serif;font-weight:700;
+  padding:4px 10px;border-radius:10px;letter-spacing:0.3px;
 }
 .assign-badge.mine{background:var(--accent);color:#fff;}
-.assign-badge.other{background:var(--panel-alt);color:var(--text-dim);}
-.assign-badge.open{background:var(--panel-alt);color:var(--text-dim);}
+.assign-badge.other{background:rgba(47,158,122,0.24);color:var(--ok);}
+.assign-badge.open{background:rgba(210,86,79,0.24);color:var(--danger);}
 .empty{
   text-align:center;
   color:var(--text-dim);
@@ -1175,10 +1175,10 @@ function cardHtml(d, extraClass){
   const relevantAssign = isAfhalingFase ? d.toegewezenAanAfhaling : d.toegewezenAan;
   const forMe = isAssignedToMe(relevantAssign);
   const assignLabel = forMe
-    ? `<span class="assign-badge mine">Voor jou</span>`
+    ? `<span class="assign-badge mine">🚐 Voor jou</span>`
     : relevantAssign
-      ? `<span class="assign-badge other">${relevantAssign.type==='team'?'👥 ':'→ '}${escapeHtml(relevantAssign.naam)}</span>`
-      : `<span class="assign-badge open">Alle chauffeurs</span>`;
+      ? `<span class="assign-badge other">✓ ${escapeHtml(relevantAssign.naam)}</span>`
+      : `<span class="assign-badge open">⚠ Nog toe te wijzen</span>`;
   const factuurStar = (currentUser.rol === 'admin' && d.betaling.status === 'factuur') ? `<span class="star-badge" title="Nog te factureren">★</span>` : '';
   const verzetBadge = d.afhaling.verzetAangevraagd ? `<span class="assign-badge other" style="background:rgba(217,164,65,0.18);color:var(--warn)">🔁 Verzet aangevraagd</span>` : '';
   const tijdWeergave = d.status === 'te-leveren' ? d.tijdslot : (d.status === 'geplaatst' ? d.afhaaltijd : d.tijdslot);
@@ -1477,7 +1477,7 @@ function renderNewForm(){
     <h3>Afhaling</h3>
     <div class="two-col">
       <div class="field"><label>Afhaaldatum</label><input type="date" id="f-afhaaldatum"></div>
-      <div class="field"><label>Voorziene afhaaltijd</label><input type="time" id="f-afhaaltijd"></div>
+      <div class="field"><label>Voorziene afhaaltijd</label><input type="text" id="f-afhaaltijd" placeholder="Bv. 14:30" inputmode="numeric"></div>
     </div>
   </div>
   <button class="btn" id="save-new">Levering toevoegen</button>
@@ -1643,7 +1643,7 @@ function renderDetail(d){
     <h3>Afhaaltijd bevestigen</h3>
     <div class="two-col">
       <div class="field"><label>Afhaaldatum</label><input type="date" id="afhaaldatum" value="${d.afhaaldatum||''}"></div>
-      <div class="field"><label>Afhaaltijd</label><input type="time" id="afhaaltijd" value="${d.afhaaltijd||''}"></div>
+      <div class="field"><label>Afhaaltijd</label><input type="text" id="afhaaltijd" value="${escapeHtml(d.afhaaltijd||'')}" placeholder="Bv. 14:30" inputmode="numeric"></div>
     </div>
   </div>
 
@@ -2310,6 +2310,14 @@ function activityDatesSet(){
 }
 
 function dossierCardHtml(d){
+  const isAfhalingFase = (d.status === 'geplaatst' || d.status === 'afgerond');
+  const relevantAssign = isAfhalingFase ? d.toegewezenAanAfhaling : d.toegewezenAan;
+  const forMe = isAssignedToMe(relevantAssign);
+  const assignLabel = forMe
+    ? `<span class="assign-badge mine">🚐 Voor jou</span>`
+    : relevantAssign
+      ? `<span class="assign-badge other">✓ ${escapeHtml(relevantAssign.naam)}</span>`
+      : `<span class="assign-badge open">⚠ Nog toe te wijzen</span>`;
   const factuurStar = (currentUser.rol === 'admin' && d.betaling.status === 'factuur') ? `<span class="star-badge" title="Nog te factureren">★</span>` : '';
   const verzetBadge = d.afhaling.verzetAangevraagd ? `<span class="assign-badge other" style="background:rgba(217,164,65,0.18);color:var(--warn)">🔁 Verzet aangevraagd</span>` : '';
   const deleteBtn = currentUser.rol === 'admin' ? `<span class="card-delete-btn" data-delete-id="${d.id}" data-delete-naam="${escapeHtml(d.klant||'')}" title="Verwijderen">✕</span>` : '';
@@ -2334,6 +2342,7 @@ function dossierCardHtml(d){
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px">
         <span class="badge ${d.status}" style="margin-top:0">${STATUS_LABEL[d.status]}</span>
+        ${assignLabel}
         ${verzetBadge}
       </div>
       ${stamps.length ? `<div style="font-size:11.5px;color:var(--text-dim);margin-top:8px">${stamps.join(' · ')}</div>` : ''}
