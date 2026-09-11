@@ -163,6 +163,7 @@ main{flex:1;padding:16px;}
 .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;}
 .cal-cell{aspect-ratio:1;display:flex;align-items:center;justify-content:center;border-radius:var(--radius);font-size:13px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-weight:600;}
 .cal-cell.cal-empty{cursor:default;background:none;}
+.cal-cell.cal-disabled{cursor:default;background:none;color:var(--text-dim);opacity:0.35;}
 .cal-cell.cal-free{background:rgba(47,158,122,0.16);color:var(--ok);}
 .cal-cell.cal-active{background:rgba(210,86,79,0.28);color:#ff9a94;}
 .cal-cell.cal-today{text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:3px;}
@@ -430,6 +431,21 @@ button{font-family:'Inter',sans-serif;}
 }
 .user-chip .logout{color:var(--accent);cursor:pointer;font-weight:600;}
 .theme-toggle{cursor:pointer;font-size:15px;margin-right:2px;}
+.link-toggle{
+  display:inline-block;
+  font-size:12.5px;
+  color:var(--text-dim);
+  cursor:pointer;
+  padding:4px 0;
+}
+.link-toggle:active{color:var(--text);}
+.occ-panel-box{
+  margin-top:8px;
+  padding:10px 12px;
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  background:var(--panel);
+}
 .mini-row{padding:9px 0;border-bottom:1px solid var(--line);cursor:pointer;}
 .mini-row:last-child{border-bottom:none;}
 .mini-row-title{font-size:14px;}
@@ -1081,8 +1097,9 @@ async function refreshTeamList(){
 
 // ---------- LIST VIEW ----------
 let listFilter = 'alle'; // 'alle' | 'mij'
-let typeFilter = 'alle'; // 'alle' | 'leveringen' | 'afhalingen'
-let dateScope = 'vandaag'; // 'vandaag' | 'komende'
+let showLeveringen = true;
+let showAfhalingen = true;
+let dateScope = 'vandaag'; // 'vandaag' | 'morgen' | 'komende'
 let renderedSections = {}; // sectionKey -> geordende array van delivery-ids (voor omhoog/omlaag knoppen)
 
 function timeMinutes(str){
@@ -1103,11 +1120,8 @@ function renderVehicleOccupancyPanel(){
   if(vehiclePanelOpen){
     if(teamsData.length === 0){
       inner = `<div class="queue-note" style="text-align:left">Nog geen voertuigen aangemaakt.</div>`;
-    } else {
-      inner = teamsData.map(t=>{
-        const isMine = myTeamIds.includes(t.id);
-        if(currentUser.rol === 'admin'){
-          return `<details class="driver-block" data-occ-team="${t.id}">
+    } else if(currentUser.rol === 'admin'){
+      inner = teamsData.map(t=>`<details class="driver-block" data-occ-team="${t.id}">
             <summary>${escapeHtml(t.naam)} <span class="driver-count">${t.leden.map(l=>escapeHtml(l.naam)).join(', ') || 'Geen bemanning'}</span></summary>
             <div style="margin-top:10px">
               <div class="occ-checkboxes">
@@ -1119,29 +1133,23 @@ function renderVehicleOccupancyPanel(){
               </div>
               <button class="btn small ok" style="margin-top:8px" data-occ-save="${t.id}">Bemanning opslaan</button>
             </div>
-          </details>`;
-        }
-        return `<div class="team-row">
-          <div>
-            <div class="naam">${escapeHtml(t.naam)} ${isMine ? '<span class="star-badge" title="Jouw voertuig">●</span>' : ''}</div>
-            <div class="rolbadge">${t.leden.map(l=>escapeHtml(l.naam)).join(', ') || 'Geen bemanning'}</div>
-          </div>
-        </div>`;
-      }).join('');
-      if(currentUser.rol !== 'admin'){
-        inner += `<div class="field" style="margin-top:12px">
-          <label>Jouw voertuig</label>
-          <select id="my-vehicle-select">
-            <option value="">Niet toegewezen</option>
-            ${teamsData.map(t=>`<option value="${t.id}" ${myTeamIds.includes(t.id)?'selected':''}>${escapeHtml(t.naam)}</option>`).join('')}
-          </select>
-        </div>`;
-      }
+          </details>`).join('');
+    } else {
+      // Crew ziet enkel het eigen voertuig, geen info over andere voertuigen/bemanning
+      const mineTeam = teamsData.find(t => myTeamIds.includes(t.id));
+      inner = `<div class="field" style="margin-bottom:0">
+        <label>Jouw voertuig</label>
+        <select id="my-vehicle-select">
+          <option value="">Niet toegewezen</option>
+          ${teamsData.map(t=>`<option value="${t.id}" ${myTeamIds.includes(t.id)?'selected':''}>${escapeHtml(t.naam)}</option>`).join('')}
+        </select>
+      </div>
+      ${mineTeam ? `<div style="font-size:11.5px;color:var(--text-dim);margin-top:8px">Bemanning: ${mineTeam.leden.map(l=>escapeHtml(l.naam)).join(', ') || 'Enkel jij'}</div>` : ''}`;
     }
   }
-  return `<div class="section" style="padding:12px 16px;margin-bottom:14px">
-    <div class="cal-nav" id="vehicle-panel-toggle" style="width:auto;height:auto;padding:6px 10px;font-size:13px;font-family:'Barlow Condensed',sans-serif;font-weight:600;display:inline-flex;">${toggleLabel}</div>
-    ${vehiclePanelOpen ? `<div style="margin-top:12px">${inner}</div>` : ''}
+  return `<div style="margin-bottom:14px">
+    <span class="link-toggle" id="vehicle-panel-toggle">🚐 ${toggleLabel}</span>
+    ${vehiclePanelOpen ? `<div class="occ-panel-box">${inner}</div>` : ''}
   </div>`;
 }
 function isAssignedToMe(assignment){
@@ -1215,16 +1223,16 @@ function renderList(){
   const filterBar = `
     <div class="pillgroup" id="scope-filter-pills" style="margin-bottom:10px">
       <span class="pill ${dateScope==='vandaag'?'active':''}" data-val="vandaag">Vandaag</span>
-      <span class="pill ${dateScope==='komende'?'active':''}" data-val="komende">Komende leveringen</span>
+      <span class="pill ${dateScope==='morgen'?'active':''}" data-val="morgen">Morgen</span>
+      <span class="pill ${dateScope==='komende'?'active':''}" data-val="komende">Komende dagen</span>
     </div>
     <div class="pillgroup" id="list-filter-pills" style="margin-bottom:10px">
       <span class="pill ${listFilter==='alle'?'active':''}" data-val="alle">Alles</span>
       <span class="pill ${listFilter==='mij'?'active':''}" data-val="mij">Voor mij</span>
     </div>
     <div class="pillgroup" id="type-filter-pills" style="margin-bottom:16px">
-      <span class="pill ${typeFilter==='alle'?'active':''}" data-val="alle">Alles</span>
-      <span class="pill ${typeFilter==='leveringen'?'active':''}" data-val="leveringen">Leveringen</span>
-      <span class="pill ${typeFilter==='afhalingen'?'active':''}" data-val="afhalingen">Afhalingen</span>
+      <span class="pill ${showLeveringen?'active':''}" data-val="leveringen">Leveringen</span>
+      <span class="pill ${showAfhalingen?'active':''}" data-val="afhalingen">Afhalingen</span>
     </div>
     ${(dateScope==='komende' && currentUser.rol !== 'admin') ? `<div class="queue-note" style="margin-bottom:16px;text-align:left">Je ziet hier de planning tot en met de komende week. Voor de volledige planning: vraag de admin.</div>` : ''}
   `;
@@ -1235,6 +1243,10 @@ function renderList(){
   if(dateScope === 'vandaag'){
     const today = todayISO();
     visible = visible.filter(d => relevantDateForItem(d) === today);
+  } else if(dateScope === 'morgen'){
+    const morgen = new Date(); morgen.setDate(morgen.getDate()+1);
+    const morgenISO = morgen.toISOString().slice(0,10);
+    visible = visible.filter(d => relevantDateForItem(d) === morgenISO);
   } else if(currentUser.rol !== 'admin'){
     const cutoff = weekCutoffISO();
     visible = visible.filter(d => {
@@ -1250,7 +1262,8 @@ function renderList(){
     </div>`;
   }
   if(visible.length === 0){
-    return vehicleOccupancyPanel + filterBar + `<div class="empty"><div class="big">Niets gevonden</div>${dateScope==='vandaag' ? 'Niets gepland voor vandaag. Bekijk "Komende leveringen" voor de rest.' : 'Bekijk "Alles" of vraag de admin naar de volledige planning.'}</div>`;
+    const scopeMsg = dateScope==='vandaag' ? 'Niets gepland voor vandaag.' : dateScope==='morgen' ? 'Niets gepland voor morgen.' : 'Bekijk "Alles" of vraag de admin naar de volledige planning.';
+    return vehicleOccupancyPanel + filterBar + `<div class="empty"><div class="big">Niets gevonden</div>${scopeMsg}</div>`;
   }
 
   renderedSections = {};
@@ -1269,8 +1282,9 @@ function renderList(){
     let opTeHalen = items.filter(d => d.status === 'geplaatst').sort((a,b)=> sortKeyFor(a,'afhaaltijd') - sortKeyFor(b,'afhaaltijd'));
     let afgerond = items.filter(d => d.status === 'afgerond').sort((a,b)=> sortKeyFor(a,'afhaaltijd') - sortKeyFor(b,'afhaaltijd'));
 
-    if(typeFilter === 'leveringen'){ opTeHalen = []; afgerond = []; }
-    if(typeFilter === 'afhalingen'){ teLeveren = []; afgerond = []; }
+    if(!showLeveringen){ teLeveren = []; }
+    if(!showAfhalingen){ opTeHalen = []; }
+    if(!showLeveringen && !showAfhalingen){ afgerond = []; }
 
     if(teLeveren.length === 0 && opTeHalen.length === 0 && afgerond.length === 0) return;
     anyDayShown = true;
@@ -1282,7 +1296,7 @@ function renderList(){
 
     html += `<div class="day-group"><h2>${dateKey===todayISO() ? 'Vandaag — ' : ''}${fmtDate(dateKey)}</h2>`;
 
-    if(typeFilter !== 'leveringen' && teLeveren.length === 0 && opTeHalen.length > 0){
+    if(showAfhalingen && teLeveren.length === 0 && opTeHalen.length > 0){
       const eerste = opTeHalen[0];
       html += `<div class="next-pickup-banner">🕐 Alle leveringen gebeurd — eerstvolgende afhaling: <b>${escapeHtml(eerste.afhaaltijd || '?')} bij ${escapeHtml(eerste.klant)}</b></div>`;
     }
@@ -1379,7 +1393,8 @@ function bindListEvents(){
   if(typePills){
     typePills.querySelectorAll('.pill').forEach(p=>{
       p.addEventListener('click', ()=>{
-        typeFilter = p.dataset.val;
+        if(p.dataset.val === 'leveringen') showLeveringen = !showLeveringen;
+        else if(p.dataset.val === 'afhalingen') showAfhalingen = !showAfhalingen;
         render();
       });
     });
@@ -2343,11 +2358,16 @@ function renderDossiers(){
   const firstOfMonth = new Date(calYear, calMonth, 1);
   const daysInMonth = new Date(calYear, calMonth+1, 0).getDate();
   const startWeekday = (firstOfMonth.getDay() + 6) % 7; // maandag = 0
+  const cutoff = currentUser.rol !== 'admin' ? weekCutoffISO() : null;
 
   let cells = '';
   for(let i=0;i<startWeekday;i++) cells += `<div class="cal-cell cal-empty"></div>`;
   for(let day=1; day<=daysInMonth; day++){
     const dateStr = `${calYear}-${pad2(calMonth+1)}-${pad2(day)}`;
+    if(cutoff && dateStr > cutoff){
+      cells += `<div class="cal-cell cal-disabled">${day}</div>`;
+      continue;
+    }
     const hasActivity = activity.has(dateStr);
     const isSelected = dateStr === calSelectedDate;
     const isToday = dateStr === todayISO();
@@ -2367,6 +2387,7 @@ function renderDossiers(){
     <div class="cal-weekdays">${WEEKDAGEN.map(w=>`<div>${w}</div>`).join('')}</div>
     <div class="cal-grid">${cells}</div>
     <div class="cal-legend"><span class="cal-dot cal-free"></span> Geen reservaties<span class="cal-dot cal-active" style="margin-left:16px"></span> Reservaties</div>
+    ${cutoff ? `<div class="queue-note" style="margin-top:12px;text-align:left">Je kan tot en met een week vooruit bekijken. Voor verder in de toekomst: vraag de admin.</div>` : ''}
   </div>
   <div class="section">
     <h3>${fmtDate(calSelectedDate)}</h3>
