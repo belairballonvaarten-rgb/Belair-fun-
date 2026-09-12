@@ -1898,12 +1898,16 @@ function primaryProductLabel(d){
 function cardHtml(d, extraClass){
   const isAfhalingFase = (d.status === 'geplaatst' || d.status === 'afgerond');
   const relevantAssign = isAfhalingFase ? d.toegewezenAanAfhaling : d.toegewezenAan;
+  const assignField = isAfhalingFase ? 'toegewezenAanAfhaling' : 'toegewezenAan';
   const forMe = isAssignedToMe(relevantAssign);
   const assignLabel = forMe
     ? `<span class="assign-badge mine">🚐 Voor jou</span>`
     : relevantAssign
       ? `<span class="assign-badge other">✓ ${escapeHtml(relevantAssign.naam)}</span>`
-      : `<span class="assign-badge open">⚠ Nog toe te wijzen</span>`;
+      : `<select class="quick-assign-select card-quick-assign" data-quick-id="${d.id}" data-quick-field="${assignField}" style="color:var(--danger);border-color:rgba(210,86,79,0.4)">
+          <option value="">⚠ Nog toe te wijzen</option>
+          ${teamsData.map(t=>`<option value="${t.id}">${escapeHtml(t.naam)}</option>`).join('')}
+        </select>`;
   const factuurStar = (currentUser.rol === 'admin' && d.betaling.status === 'factuur') ? `<span class="star-badge" title="Nog te factureren">★</span>` : '';
   const verzetBadge = d.afhaling.verzetAangevraagd ? `<span class="assign-badge other" style="background:rgba(217,164,65,0.18);color:var(--warn)">🔁 Verzet aangevraagd</span>` : '';
   const tijdWeergave = d.status === 'te-leveren' ? d.tijdslot : (d.status === 'geplaatst' ? d.afhaaltijd : d.tijdslot);
@@ -2135,6 +2139,28 @@ function bindListEvents(){
       e.stopPropagation();
       const deleted = await requestDeleteDelivery(btn.dataset.deleteId, btn.dataset.deleteNaam);
       if(deleted) render();
+    });
+  });
+  document.querySelectorAll('.card-quick-assign').forEach(sel=>{
+    sel.addEventListener('click', (e)=> e.stopPropagation());
+    sel.addEventListener('change', async (e)=>{
+      e.stopPropagation();
+      const id = sel.dataset.quickId;
+      const field = sel.dataset.quickField;
+      const teamId = sel.value ? parseInt(sel.value,10) : null;
+      const d = getDelivery(id);
+      if(!d) return;
+      const team = teamId ? teamsData.find(t=>t.id===teamId) : null;
+      const prev = d[field];
+      d[field] = team ? { id: team.id, naam: team.naam, type: 'team' } : null;
+      try{
+        await saveDeliveries(d);
+        showToast(team ? 'Toegewezen aan ' + team.naam : 'Toewijzing gewist');
+        render();
+      }catch(err){
+        d[field] = prev;
+        showToast(err.message);
+      }
     });
   });
   document.querySelectorAll('.reorder-btn').forEach(btn=>{
@@ -3178,12 +3204,16 @@ function activityDatesSet(){
 function dossierCardHtml(d){
   const isAfhalingFase = (d.status === 'geplaatst' || d.status === 'afgerond');
   const relevantAssign = isAfhalingFase ? d.toegewezenAanAfhaling : d.toegewezenAan;
+  const assignField = isAfhalingFase ? 'toegewezenAanAfhaling' : 'toegewezenAan';
   const forMe = isAssignedToMe(relevantAssign);
   const assignLabel = forMe
     ? `<span class="assign-badge mine">🚐 Voor jou</span>`
     : relevantAssign
       ? `<span class="assign-badge other">✓ ${escapeHtml(relevantAssign.naam)}</span>`
-      : `<span class="assign-badge open">⚠ Nog toe te wijzen</span>`;
+      : `<select class="quick-assign-select card-quick-assign" data-quick-id="${d.id}" data-quick-field="${assignField}" style="color:var(--danger);border-color:rgba(210,86,79,0.4)">
+          <option value="">⚠ Nog toe te wijzen</option>
+          ${teamsData.map(t=>`<option value="${t.id}">${escapeHtml(t.naam)}</option>`).join('')}
+        </select>`;
   const factuurStar = (currentUser.rol === 'admin' && d.betaling.status === 'factuur') ? `<span class="star-badge" title="Nog te factureren">★</span>` : '';
   const verzetBadge = d.afhaling.verzetAangevraagd ? `<span class="assign-badge other" style="background:rgba(217,164,65,0.18);color:var(--warn)">🔁 Verzet aangevraagd</span>` : '';
   const deleteBtn = currentUser.rol === 'admin' ? `<span class="card-delete-btn" data-delete-id="${d.id}" data-delete-naam="${escapeHtml(d.klant||'')}" title="Verwijderen">✕</span>` : '';
@@ -3280,7 +3310,7 @@ function bindDossierEvents(){
   });
   document.querySelectorAll('[data-open]').forEach(c=>{
     c.addEventListener('click', (e)=>{
-      if(e.target.closest('[data-pdf]') || e.target.closest('.card-delete-btn')) return;
+      if(e.target.closest('[data-pdf]') || e.target.closest('.card-delete-btn') || e.target.closest('.card-quick-assign')) return;
       setView('detail', c.dataset.id);
     });
   });
@@ -3289,6 +3319,28 @@ function bindDossierEvents(){
       e.stopPropagation();
       const deleted = await requestDeleteDelivery(btn.dataset.deleteId, btn.dataset.deleteNaam);
       if(deleted) render();
+    });
+  });
+  document.querySelectorAll('.card-quick-assign').forEach(sel=>{
+    sel.addEventListener('click', (e)=> e.stopPropagation());
+    sel.addEventListener('change', async (e)=>{
+      e.stopPropagation();
+      const id = sel.dataset.quickId;
+      const field = sel.dataset.quickField;
+      const teamId = sel.value ? parseInt(sel.value,10) : null;
+      const d = getDelivery(id);
+      if(!d) return;
+      const team = teamId ? teamsData.find(t=>t.id===teamId) : null;
+      const prev = d[field];
+      d[field] = team ? { id: team.id, naam: team.naam, type: 'team' } : null;
+      try{
+        await saveDeliveries(d);
+        showToast(team ? 'Toegewezen aan ' + team.naam : 'Toewijzing gewist');
+        render();
+      }catch(err){
+        d[field] = prev;
+        showToast(err.message);
+      }
     });
   });
   document.querySelectorAll('[data-pdf]').forEach(btn=>{
