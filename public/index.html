@@ -2271,7 +2271,14 @@ function renderDetail(d){
 
   <div class="detail-head">
     <div class="klant">${escapeHtml(d.klant)}</div>
-    <div class="adres">${escapeHtml(d.adres)}</div>
+    <div class="adres" id="adres-display" style="cursor:pointer" title="Tik om het adres aan te passen">${escapeHtml(d.adres || 'Geen adres')} <span style="opacity:0.6;font-size:12px">✎ bewerken</span></div>
+    <div class="field" id="adres-edit-wrap" style="display:none;margin-top:6px;max-width:360px">
+      <input type="text" id="adres-edit-input" value="${escapeHtml(d.adres||'')}" placeholder="Straat, nr, postcode gemeente">
+      <div class="stack" style="margin-top:6px">
+        <button class="btn small ok" id="adres-save-btn">Opslaan</button>
+        <button class="btn small secondary" id="adres-cancel-btn">Annuleren</button>
+      </div>
+    </div>
     <div class="meta">
       <span>📅 ${fmtDate(d.datum)} ${d.tijdslot ? '· ' + escapeHtml(d.tijdslot) : ''}</span>
       ${d.telefoon ? `<span>📞 <a href="tel:${escapeHtml(String(d.telefoon).replace(/[^\d+]/g,''))}" style="color:inherit;text-decoration:underline">${escapeHtml(d.telefoon)}</a></span>` : ''}
@@ -2548,6 +2555,41 @@ function resizeImageFile(file, maxWidth=900, quality=0.62){
 
 function bindDetailEvents(d){
   document.getElementById('back-btn').addEventListener('click', ()=> setView('list'));
+
+  const adresDisplay = document.getElementById('adres-display');
+  const adresEditWrap = document.getElementById('adres-edit-wrap');
+  const adresEditInput = document.getElementById('adres-edit-input');
+  if(adresDisplay){
+    adresDisplay.addEventListener('click', ()=>{
+      adresDisplay.style.display = 'none';
+      adresEditWrap.style.display = '';
+      adresEditInput.focus();
+    });
+  }
+  const adresCancelBtn = document.getElementById('adres-cancel-btn');
+  if(adresCancelBtn){
+    adresCancelBtn.addEventListener('click', ()=>{
+      adresEditInput.value = d.adres || '';
+      adresEditWrap.style.display = 'none';
+      adresDisplay.style.display = '';
+    });
+  }
+  const adresSaveBtn = document.getElementById('adres-save-btn');
+  if(adresSaveBtn){
+    adresSaveBtn.addEventListener('click', async ()=>{
+      const nieuwAdres = adresEditInput.value.trim();
+      const prev = d.adres;
+      d.adres = nieuwAdres;
+      try{
+        await saveDeliveries(d);
+        showToast('Adres aangepast');
+        setView('detail', d.id);
+      }catch(err){
+        d.adres = prev;
+        showToast(err.message);
+      }
+    });
+  }
 
   const showQrBtn = document.getElementById('show-qr-btn');
   if(showQrBtn){
