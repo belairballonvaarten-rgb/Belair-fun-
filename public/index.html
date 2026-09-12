@@ -3469,10 +3469,10 @@ function stopLocationSharing(){
     locationWatchId = null;
   }
 }
-document.addEventListener('visibilitychange', ()=>{
-  if(document.hidden) stopLocationSharing();
-  else if(currentUser && currentUser.rol !== 'admin') startLocationSharing();
-});
+// We stoppen de locatie bewust niet meer bij het wegschakelen van het tabblad —
+// telkens opnieuw pos.watchPosition() opstarten kan op sommige toestellen
+// nodeloos een nieuwe toestemmingsvraag triggeren. De browser zelf pauzeert
+// GPS-updates al vanzelf op de achtergrond.
 
 function renderAuthForm(){
   const sub = document.getElementById('authSub');
