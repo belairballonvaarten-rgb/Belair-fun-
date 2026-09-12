@@ -121,7 +121,8 @@ function emptyDeliveryServer() {
     status: 'te-leveren',
     toegewezenAan: null,
     toegewezenAanAfhaling: null,
-    handmatigeVolgorde: null,
+    handmatigeVolgordeLevering: null,
+    handmatigeVolgordeAfhaling: null,
     plaatsing: {
       correctGeplaatst: false, bevestiging: '', valmatten: false, verlengkabel: false,
       aantalKabels: '', aantalZandzakken: '', netjes: false, opmerkingen: '', tijdstip: '', bevestigd: false, bevestigdOp: ''
