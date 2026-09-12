@@ -401,13 +401,28 @@ app.post('/api/import', auth, adminOnly, async (req, res) => {
         const r = await pool.query("SELECT id, data FROM deliveries WHERE data->>'boekingsnummer' = $1 AND data->>'boekingsnummer' <> ''", [boekingsnummer]);
         if (r.rows.length > 0) existing = r.rows[0];
       }
+      if (!existing && d.klant && d.datum && d.artikelen) {
+        // Vangnet: geen (herkend) boekingsnummer, of het verschilt van eerdere imports.
+        // Toch dezelfde klant + leverdatum + artikelen? Dan gaan we ervan uit dat het om
+        // dezelfde boeking gaat (bv. andere export/bron met een andere boekingsnummer-opmaak),
+        // om dubbele reservaties te vermijden.
+        const r2 = await pool.query(
+          `SELECT id, data FROM deliveries
+           WHERE lower(trim(data->>'klant')) = lower(trim($1))
+             AND data->>'datum' = $2
+             AND lower(trim(data->>'artikelen')) = lower(trim($3))`,
+          [d.klant, d.datum, d.artikelen]
+        );
+        if (r2.rows.length > 0) existing = r2.rows[0];
+      }
       if (existing) {
         // Boeking bestaat al: enkel de planninggegevens bijwerken, checklists/status/toewijzing blijven behouden
         const merged = {
           ...existing.data,
           klant: d.klant, telefoon: d.telefoon, email: d.email, adres: d.adres, postcode: d.postcode,
           ondergrond: d.ondergrond, datum: d.datum, tijdslot: d.tijdslot, afhaaldatum: d.afhaaldatum,
-          afhaaltijd: d.afhaaltijd, artikelen: d.artikelen, bedrag: d.bedrag, boekingsnummer: d.boekingsnummer
+          afhaaltijd: d.afhaaltijd, artikelen: d.artikelen, bedrag: d.bedrag,
+          boekingsnummer: d.boekingsnummer || existing.data.boekingsnummer
         };
         await pool.query('UPDATE deliveries SET data=$1, updated_at=now() WHERE id=$2', [merged, existing.id]);
         updated++;
