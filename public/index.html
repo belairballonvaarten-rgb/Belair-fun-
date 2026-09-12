@@ -625,6 +625,22 @@ function fmtDate(iso){
   const d = new Date(iso + 'T00:00:00');
   return d.toLocaleDateString('nl-BE', { weekday:'short', day:'numeric', month:'short' });
 }
+function timeOptionsHtml(selected){
+  let html = `<option value="">Geen</option>`;
+  const slots = [];
+  for(let h=0; h<24; h++){
+    for(let m=0; m<60; m+=30){
+      slots.push(pad2(h) + ':' + pad2(m));
+    }
+  }
+  if(selected && !slots.includes(selected)){
+    html += `<option value="${selected}" selected>${selected} (bestaand)</option>`;
+  }
+  slots.forEach(val => {
+    html += `<option value="${val}" ${selected===val?'selected':''}>${val}</option>`;
+  });
+  return html;
+}
 function todayISO(){
   const d = new Date();
   return d.toISOString().slice(0,10);
@@ -2167,7 +2183,7 @@ function renderNewForm(){
     <h3>Afhaling</h3>
     <div class="two-col">
       <div class="field"><label>Afhaaldatum</label><input type="date" id="f-afhaaldatum"></div>
-      <div class="field"><label>Voorziene afhaaltijd</label><input type="text" id="f-afhaaltijd" placeholder="Bv. 14:30" inputmode="numeric"></div>
+      <div class="field"><label>Voorziene afhaaltijd</label><select id="f-afhaaltijd">${timeOptionsHtml('')}</select></div>
     </div>
   </div>
   <button class="btn" id="save-new">Levering toevoegen</button>
@@ -2353,7 +2369,7 @@ function renderDetail(d){
     <h3>Afhaaltijd bevestigen</h3>
     <div class="two-col">
       <div class="field"><label>Afhaaldatum</label><input type="date" id="afhaaldatum" value="${d.afhaaldatum||''}"></div>
-      <div class="field"><label>Afhaaltijd</label><input type="text" id="afhaaltijd" value="${escapeHtml(d.afhaaltijd||'')}" placeholder="Bv. 14:30" inputmode="numeric"></div>
+      <div class="field"><label>Afhaaltijd</label><select id="afhaaltijd">${timeOptionsHtml(d.afhaaltijd||'')}</select></div>
     </div>
   </div>
 
@@ -2829,6 +2845,7 @@ function bindDetailEvents(d){
       d.plaatsing.bevestigd = true;
       d.plaatsing.bevestigdOp = new Date().toISOString();
       if(d.status === 'te-leveren') d.status = 'geplaatst';
+      d.handmatigeVolgorde = null; // eventuele manuele volgorde van de leveringsronde telt niet meer mee voor de afhalingen — die starten opnieuw, gesorteerd op afhaaltijd
       try{
         await saveDeliveries(d);
         showToast('Levering bevestigd — niet langer aanpasbaar');
@@ -3270,7 +3287,7 @@ function startAutoRefresh(){
       deliveries.forEach(d => persistedIds.add(d.id));
       render();
     }catch(err){ /* stil negeren bij een tijdelijke netwerkhapering */ }
-  }, 10000);
+  }, 60000);
 }
 
 // ---------- Push-meldingen (enkel geactiveerd wanneer de admin handmatig verstuurt) ----------
