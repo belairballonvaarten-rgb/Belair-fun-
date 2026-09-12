@@ -673,7 +673,8 @@ function emptyDelivery(){
     status: 'te-leveren',
     toegewezenAan: null, // { id, naam } chauffeur voor levering, of null = voor alle chauffeurs
     toegewezenAanAfhaling: null, // { id, naam } chauffeur voor afhaling, apart van levering
-    handmatigeVolgorde: null, // getal = manueel bepaalde positie in de planning
+    handmatigeVolgordeLevering: null, // getal = manueel bepaalde positie bij "Te leveren"
+    handmatigeVolgordeAfhaling: null, // getal = manueel bepaalde positie bij "Op te halen" — apart veld, onafhankelijk van levering
     plaatsing: {
       correctGeplaatst: false,
       bevestiging: '', // pinnen | zandzakken | verankering | geen
@@ -1754,7 +1755,8 @@ function timeMinutes(str){
   return parseInt(m[1],10)*60 + parseInt(m[2],10);
 }
 function sortKeyFor(d, timeField){
-  if(d.handmatigeVolgorde != null) return d.handmatigeVolgorde;
+  const volgordeField = timeField === 'afhaaltijd' ? 'handmatigeVolgordeAfhaling' : 'handmatigeVolgordeLevering';
+  if(d[volgordeField] != null) return d[volgordeField];
   const mins = timeMinutes(d[timeField]);
   return 100000 + (mins != null ? mins : 9999);
 }
@@ -2044,11 +2046,12 @@ function moveCard(sectionKey, id, dir){
   const swapWith = dir === 'up' ? idx - 1 : idx + 1;
   if(idx < 0 || swapWith < 0 || swapWith >= order.length) return;
   [order[idx], order[swapWith]] = [order[swapWith], order[idx]];
+  const volgordeField = sectionKey.endsWith('|geplaatst') ? 'handmatigeVolgordeAfhaling' : 'handmatigeVolgordeLevering';
   const changed = [];
   order.forEach((did, i)=>{
     const d = getDelivery(did);
-    if(d && d.handmatigeVolgorde !== i){
-      d.handmatigeVolgorde = i;
+    if(d && d[volgordeField] !== i){
+      d[volgordeField] = i;
       changed.push(d);
     }
   });
@@ -2845,7 +2848,6 @@ function bindDetailEvents(d){
       d.plaatsing.bevestigd = true;
       d.plaatsing.bevestigdOp = new Date().toISOString();
       if(d.status === 'te-leveren') d.status = 'geplaatst';
-      d.handmatigeVolgorde = null; // eventuele manuele volgorde van de leveringsronde telt niet meer mee voor de afhalingen — die starten opnieuw, gesorteerd op afhaaltijd
       try{
         await saveDeliveries(d);
         showToast('Levering bevestigd — niet langer aanpasbaar');
