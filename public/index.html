@@ -1974,10 +1974,12 @@ function bindListEvents(){
     myVehicleSelect.addEventListener('change', async (e)=>{
       const teamId = e.target.value ? parseInt(e.target.value,10) : null;
       const prev = [...myTeamIds];
+      const naam = teamId ? teamsData.find(t=>t.id===teamId).naam : null;
       myTeamIds = teamId ? [teamId] : [];
       try{
         await apiFetch('/api/my-team', { method:'PUT', body: JSON.stringify({ teamId }) });
-        showToast(teamId ? 'Je zit nu in ' + teamsData.find(t=>t.id===teamId).naam : 'Voertuig gewist');
+        teamsData = await apiFetch('/api/teams'); // bemanningslijsten verversen, anders lijkt het alsof er niets gebeurd is
+        showToast(naam ? 'Je zit nu in ' + naam : 'Voertuig gewist');
         render();
       }catch(err){
         myTeamIds = prev;
