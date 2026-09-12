@@ -882,6 +882,14 @@ function renderInstellingen(){
     <div id="sync-result" style="margin-top:10px;font-size:13px;color:var(--text-dim)"></div>
   </div>
   <div class="section">
+    <h3>Dubbele boekingen opsporen</h3>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">
+      Zoekt reservaties met exact dezelfde klant, leverdatum en artikelen. Er wordt niets automatisch verwijderd — jij bekijkt en verwijdert zelf wat effectief een dubbel is.
+    </div>
+    <button class="btn small secondary" id="find-duplicates-btn">Zoek dubbele boekingen</button>
+    <div id="duplicates-result" style="margin-top:12px"></div>
+  </div>
+  <div class="section">
     <h3>Materiaal-info</h3>
     <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">
       Vaste materiaal-info per product — verschijnt automatisch op de laadlijst en in het totaaloverzicht onderaan, telkens dit product in een boeking voorkomt. De naam moet exact overeenkomen met hoe het product in de boekingen genoemd wordt. Pinnen gelden voor "Op gras", zandzakken + valmatten voor "Harde ondergrond".
@@ -1409,6 +1417,36 @@ async function bindInstellingenEvents(){
       showToast('Synchronisatie voltooid');
     }catch(err){ resultEl.textContent = err.message; showToast(err.message); }
     btn.disabled = false;
+  });
+  document.getElementById('find-duplicates-btn').addEventListener('click', ()=>{
+    const resultEl = document.getElementById('duplicates-result');
+    const groups = {};
+    deliveries.forEach(d=>{
+      if(!d.klant || !d.datum || !d.artikelen) return;
+      const key = d.klant.trim().toLowerCase() + '|' + d.datum + '|' + d.artikelen.trim().toLowerCase();
+      if(!groups[key]) groups[key] = [];
+      groups[key].push(d);
+    });
+    const duplicateGroups = Object.values(groups).filter(g => g.length > 1);
+    if(duplicateGroups.length === 0){
+      resultEl.innerHTML = `<div class="queue-note" style="text-align:left">✓ Geen dubbele boekingen gevonden.</div>`;
+      return;
+    }
+    resultEl.innerHTML = `<div class="queue-note" style="text-align:left;margin-bottom:10px">${duplicateGroups.length} groep(en) met mogelijke dubbels gevonden (${duplicateGroups.reduce((s,g)=>s+g.length,0)} reservaties in totaal).</div>` +
+      duplicateGroups.map(group => `
+        <div style="border:1px solid var(--line);border-radius:var(--radius);padding:10px;margin-bottom:10px">
+          <div style="font-size:12px;color:var(--text-dim);margin-bottom:6px">${escapeHtml(group[0].klant)} — ${fmtDate(group[0].datum)}</div>
+          ${group.map(d => `
+            <div class="mini-row" data-id="${d.id}" style="margin-bottom:6px">
+              <div class="mini-row-title">${escapeHtml(primaryProductLabel(d))} <span class="mini-row-type">${STATUS_LABEL[d.status]}</span></div>
+              <div class="mini-row-sub">Boekingsnr: ${escapeHtml(d.boekingsnummer || '—')} · Aangemaakt via id ${escapeHtml(d.id)}</div>
+            </div>
+          `).join('')}
+        </div>
+      `).join('');
+    resultEl.querySelectorAll('.mini-row').forEach(row=>{
+      row.addEventListener('click', ()=> setView('detail', row.dataset.id));
+    });
   });
   document.getElementById('add-user-btn').addEventListener('click', async ()=>{
     const naam = document.getElementById('t-naam').value.trim();
