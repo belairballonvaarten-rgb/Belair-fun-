@@ -7,7 +7,7 @@
 <link rel="manifest" href="/manifest.json">
 <link rel="icon" href="/favicon.png">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<meta name="theme-color" content="#1E2227">
+<meta name="theme-color" content="#262B31">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Belair-Fun">
@@ -18,12 +18,12 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <style>
 :root{
-  --bg:#1E2227;
-  --panel:#282D34;
-  --panel-alt:#313742;
-  --line:#3A4048;
-  --text:#F1EFE9;
-  --text-dim:#9BA2AC;
+  --bg:#262B31;
+  --panel:#323841;
+  --panel-alt:#3B424D;
+  --line:#4A525E;
+  --text:#ECEAE4;
+  --text-dim:#A5ACB6;
   --accent:#E8631E;
   --accent-dim:#B94F19;
   --ok:#2F9E7A;
@@ -33,12 +33,12 @@
   --radius:4px;
 }
 [data-theme="light"]{
-  --bg:#F2F3F5;
-  --panel:#FFFFFF;
-  --panel-alt:#EDEFF2;
-  --line:#D8DCE1;
-  --text:#20242A;
-  --text-dim:#5C6470;
+  --bg:#E7E9EC;
+  --panel:#F3F4F6;
+  --panel-alt:#E1E4E8;
+  --line:#CBD0D6;
+  --text:#2A2E34;
+  --text-dim:#646C76;
   --accent:#E8631E;
   --accent-dim:#B94F19;
   --ok:#1F8F6B;
@@ -48,7 +48,7 @@
 }
 [data-theme="light"] .cal-cell.cal-active{background:rgba(194,63,56,0.16);color:#A6332D;}
 [data-theme="light"] .cal-dot.cal-active{background:#C23F38;}
-[data-theme="light"] .cal-cell.cal-selected{box-shadow:inset 0 0 0 2px #20242A;}
+[data-theme="light"] .cal-cell.cal-selected{box-shadow:inset 0 0 0 2px #2A2E34;}
 [data-theme="light"] .card-delete-btn,
 [data-theme="light"] .team-row .rm{color:var(--danger);}
 *{box-sizing:border-box;}
@@ -304,6 +304,15 @@ button{font-family:'Inter',sans-serif;}
   font-family:'Inter',sans-serif;
 }
 .field textarea{resize:vertical;min-height:64px;}
+.quick-assign-select{
+  background:var(--panel-alt);
+  border:1px solid var(--line);
+  color:var(--text);
+  border-radius:var(--radius);
+  padding:7px 9px;
+  font-size:13px;
+  font-family:'Inter',sans-serif;
+}
 
 .check-row{
   display:flex;
@@ -1053,6 +1062,22 @@ async function generateDagrapportPdf(dateStr){
   }catch(err){ /* val terug op downloaden */ }
   doc.save(fileName);
 }
+function unassignedRow(d, typeLabel){
+  const tijd = typeLabel === 'Levering' ? d.tijdslot : d.afhaaltijd;
+  const datum = typeLabel === 'Levering' ? d.datum : (d.afhaaldatum || d.datum);
+  const fieldAttr = typeLabel === 'Levering' ? 'toegewezenAan' : 'toegewezenAanAfhaling';
+  return `<div class="mini-row" data-id="${d.id}" style="cursor:default">
+    <div class="mini-row-title" style="cursor:pointer" data-open="${d.id}">${escapeHtml(d.klant || 'Naamloos')} <span class="mini-row-type">${typeLabel}</span></div>
+    <div class="mini-row-sub" style="cursor:pointer" data-open="${d.id}">${fmtDate(datum)}${tijd ? ' · ' + escapeHtml(tijd) : ''} — ${escapeHtml(d.adres || '')}</div>
+    <div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap">
+      <span class="badge ${d.status}" style="margin-top:0">${STATUS_LABEL[d.status]}</span>
+      <select class="quick-assign-select" data-quick-id="${d.id}" data-quick-field="${fieldAttr}" style="flex:1;min-width:140px">
+        <option value="">Voertuig kiezen...</option>
+        ${teamsData.map(t=>`<option value="${t.id}">${escapeHtml(t.naam)}</option>`).join('')}
+      </select>
+    </div>
+  </div>`;
+}
 function renderUnassigned(){
   const openLeveringen = deliveries.filter(d => d.status === 'te-leveren' && !d.toegewezenAan && d.datum === perDriverDate)
     .sort((a,b)=> sortKeyFor(a,'tijdslot') - sortKeyFor(b,'tijdslot'));
@@ -1064,11 +1089,11 @@ function renderUnassigned(){
   let html = '';
   if(openLeveringen.length){
     html += `<div class="section-label te-leveren-label" style="margin-top:0">Leveringen zonder chauffeur (${openLeveringen.length})</div>`;
-    html += openLeveringen.map(d => miniRow(d, 'Levering')).join('');
+    html += openLeveringen.map(d => unassignedRow(d, 'Levering')).join('');
   }
   if(openAfhalingen.length){
     html += `<div class="section-label op-te-halen-label">Afhalingen zonder chauffeur (${openAfhalingen.length})</div>`;
-    html += openAfhalingen.map(d => miniRow(d, 'Afhaling')).join('');
+    html += openAfhalingen.map(d => unassignedRow(d, 'Afhaling')).join('');
   }
   return html;
 }
@@ -1314,25 +1339,41 @@ async function generateLaadlijstPdf(teamId, dateStr){
   }catch(err){ /* val terug op downloaden */ }
   doc.save(fileName);
 }
-function bindAssignmentOverviewEvents(){
-  document.querySelectorAll('#unassigned-list .mini-row, #per-driver-list .mini-row, #onbetaald-list .mini-row, #vuil-list .mini-row').forEach(row=>{
+function bindUnassignedRows(){
+  document.querySelectorAll('#unassigned-list [data-open]').forEach(el=>{
+    el.addEventListener('click', ()=> setView('detail', el.dataset.open));
+  });
+  document.querySelectorAll('#unassigned-list .quick-assign-select').forEach(sel=>{
+    sel.addEventListener('click', (e)=> e.stopPropagation());
+    sel.addEventListener('change', async (e)=>{
+      e.stopPropagation();
+      const id = sel.dataset.quickId;
+      const field = sel.dataset.quickField;
+      const teamId = sel.value ? parseInt(sel.value,10) : null;
+      const d = getDelivery(id);
+      if(!d) return;
+      const team = teamId ? teamsData.find(t=>t.id===teamId) : null;
+      const prev = d[field];
+      d[field] = team ? { id: team.id, naam: team.naam, type: 'team' } : null;
+      try{
+        await saveDeliveries(d);
+        showToast(team ? 'Toegewezen aan ' + team.naam : 'Toewijzing gewist');
+        document.getElementById('unassigned-list').innerHTML = renderUnassigned();
+        document.getElementById('per-driver-list').innerHTML = renderPerVehicle();
+        bindUnassignedRows();
+        bindPerVehicleRows();
+      }catch(err){
+        d[field] = prev;
+        showToast(err.message);
+      }
+    });
+  });
+}
+function bindPerVehicleRows(){
+  document.querySelectorAll('#per-driver-list .mini-row').forEach(row=>{
     row.addEventListener('click', ()=> setView('detail', row.dataset.id));
   });
-  const perDriverDateInput = document.getElementById('per-driver-date');
-  if(perDriverDateInput){
-    perDriverDateInput.addEventListener('change', (e)=>{
-      perDriverDate = e.target.value || todayISO();
-      document.getElementById('per-driver-list').innerHTML = renderPerVehicle();
-      const unassignedEl = document.getElementById('unassigned-list');
-      if(unassignedEl) unassignedEl.innerHTML = renderUnassigned();
-      const onbetaaldEl = document.getElementById('onbetaald-list');
-      if(onbetaaldEl) onbetaaldEl.innerHTML = renderOnbetaald();
-      const vuilEl = document.getElementById('vuil-list');
-      if(vuilEl) vuilEl.innerHTML = renderVuilTerug();
-      bindAssignmentOverviewEvents();
-    });
-  }
-  document.querySelectorAll('[data-laadlijst]').forEach(btn=>{
+  document.querySelectorAll('#per-driver-list [data-laadlijst]').forEach(btn=>{
     btn.addEventListener('click', async (e)=>{
       e.preventDefault();
       btn.disabled = true;
@@ -1344,6 +1385,33 @@ function bindAssignmentOverviewEvents(){
       btn.textContent = orig;
     });
   });
+}
+function bindOtherMiniRows(){
+  document.querySelectorAll('#onbetaald-list .mini-row, #vuil-list .mini-row').forEach(row=>{
+    row.addEventListener('click', ()=> setView('detail', row.dataset.id));
+  });
+}
+function bindAssignmentOverviewEvents(){
+  bindUnassignedRows();
+  bindPerVehicleRows();
+  bindOtherMiniRows();
+  const perDriverDateInput = document.getElementById('per-driver-date');
+  if(perDriverDateInput && !perDriverDateInput.dataset.bound){
+    perDriverDateInput.dataset.bound = '1';
+    perDriverDateInput.addEventListener('change', (e)=>{
+      perDriverDate = e.target.value || todayISO();
+      document.getElementById('per-driver-list').innerHTML = renderPerVehicle();
+      const unassignedEl = document.getElementById('unassigned-list');
+      if(unassignedEl) unassignedEl.innerHTML = renderUnassigned();
+      const onbetaaldEl = document.getElementById('onbetaald-list');
+      if(onbetaaldEl) onbetaaldEl.innerHTML = renderOnbetaald();
+      const vuilEl = document.getElementById('vuil-list');
+      if(vuilEl) vuilEl.innerHTML = renderVuilTerug();
+      bindUnassignedRows();
+      bindPerVehicleRows();
+      bindOtherMiniRows();
+    });
+  }
 }
 async function bindTeamEvents(){
   document.getElementById('back-to-planning').addEventListener('click', ()=> setView('list'));
