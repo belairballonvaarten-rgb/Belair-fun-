@@ -650,6 +650,10 @@ function timeOptionsHtml(selected){
   });
   return html;
 }
+function tomorrowISO(){
+  const d = new Date(); d.setDate(d.getDate()+1);
+  return d.toISOString().slice(0,10);
+}
 function todayISO(){
   const d = new Date();
   return d.toISOString().slice(0,10);
@@ -799,8 +803,12 @@ function renderTeam(){
   </div>
   <div class="section">
     <h3>Per voertuig</h3>
-    <div class="field" style="margin-bottom:14px">
-      <label>Dag bekijken</label>
+    <div class="pillgroup" id="per-driver-scope-pills" style="margin-bottom:10px">
+      <span class="pill ${perDriverDate===todayISO()?'active':''}" data-val="vandaag">Vandaag</span>
+      <span class="pill ${perDriverDate===tomorrowISO()?'active':''}" data-val="morgen">Morgen</span>
+      <span class="pill ${(perDriverDate!==todayISO() && perDriverDate!==tomorrowISO())?'active':''}" data-val="kies">Kies datum</span>
+    </div>
+    <div class="field" style="margin-bottom:14px;${(perDriverDate===todayISO()||perDriverDate===tomorrowISO())?'display:none':''}" id="per-driver-date-wrap">
       <input type="date" id="per-driver-date" value="${perDriverDate}">
     </div>
     <div id="per-driver-list">Laden...</div>
@@ -1132,8 +1140,12 @@ function renderVoertuigTab(){
         ${teamsData.map(t=>`<option value="${t.id}">${escapeHtml(t.naam)}${myTeamIds.includes(t.id) ? ' (jouw voertuig)' : ''}</option>`).join('')}
       </select>
     </div>
-    <div class="field" style="margin-bottom:14px">
-      <label>Dag bekijken</label>
+    <div class="pillgroup" id="voertuig-scope-pills" style="margin-bottom:10px">
+      <span class="pill ${perDriverDate===todayISO()?'active':''}" data-val="vandaag">Vandaag</span>
+      <span class="pill ${perDriverDate===tomorrowISO()?'active':''}" data-val="morgen">Morgen</span>
+      <span class="pill ${(perDriverDate!==todayISO() && perDriverDate!==tomorrowISO())?'active':''}" data-val="kies">Kies datum</span>
+    </div>
+    <div class="field" style="margin-bottom:14px;${(perDriverDate===todayISO()||perDriverDate===tomorrowISO())?'display:none':''}" id="voertuig-date-wrap">
       <input type="date" id="voertuig-date" value="${perDriverDate}">
     </div>
     <div id="voertuig-content">Laden...</div>
@@ -1151,24 +1163,40 @@ function renderSelectedVehicleBlock(){
   const block = renderVehicleBlock(t, perDriverDate);
   return block || `<div class="queue-note" style="text-align:left">Niets gepland voor ${escapeHtml(t.naam)} op deze dag.</div>`;
 }
+let selectedVoertuigTabId = null;
 async function bindVoertuigTabEvents(){
   const selectEl = document.getElementById('voertuig-select');
   const mineTeam = teamsData.find(t => myTeamIds.includes(t.id));
-  if(selectEl && mineTeam) selectEl.value = mineTeam.id;
+  if(selectedVoertuigTabId == null && mineTeam) selectedVoertuigTabId = mineTeam.id;
+  if(selectEl && selectedVoertuigTabId != null) selectEl.value = selectedVoertuigTabId;
   document.getElementById('voertuig-content').innerHTML = renderSelectedVehicleBlock();
   bindVoertuigLaadlijstButtons();
   bindVoertuigRowClicks();
   selectEl.addEventListener('change', ()=>{
+    selectedVoertuigTabId = selectEl.value ? parseInt(selectEl.value,10) : null;
     document.getElementById('voertuig-content').innerHTML = renderSelectedVehicleBlock();
     bindVoertuigLaadlijstButtons();
     bindVoertuigRowClicks();
   });
+  const scopePills = document.getElementById('voertuig-scope-pills');
+  if(scopePills){
+    scopePills.querySelectorAll('.pill').forEach(p=>{
+      p.addEventListener('click', ()=>{
+        if(p.dataset.val === 'vandaag') perDriverDate = todayISO();
+        else if(p.dataset.val === 'morgen') perDriverDate = tomorrowISO();
+        else {
+          const wrap = document.getElementById('voertuig-date-wrap');
+          if(wrap){ wrap.style.display = ''; document.getElementById('voertuig-date').focus(); }
+          return;
+        }
+        render();
+      });
+    });
+  }
   const dateInput = document.getElementById('voertuig-date');
   dateInput.addEventListener('change', (e)=>{
     perDriverDate = e.target.value || todayISO();
-    document.getElementById('voertuig-content').innerHTML = renderSelectedVehicleBlock();
-    bindVoertuigLaadlijstButtons();
-    bindVoertuigRowClicks();
+    render();
   });
 }
 function bindVoertuigRowClicks(){
@@ -1395,21 +1423,26 @@ function bindAssignmentOverviewEvents(){
   bindUnassignedRows();
   bindPerVehicleRows();
   bindOtherMiniRows();
+  const scopePills = document.getElementById('per-driver-scope-pills');
+  if(scopePills){
+    scopePills.querySelectorAll('.pill').forEach(p=>{
+      p.addEventListener('click', ()=>{
+        if(p.dataset.val === 'vandaag') perDriverDate = todayISO();
+        else if(p.dataset.val === 'morgen') perDriverDate = tomorrowISO();
+        else {
+          const wrap = document.getElementById('per-driver-date-wrap');
+          if(wrap){ wrap.style.display = ''; document.getElementById('per-driver-date').focus(); }
+          return;
+        }
+        render();
+      });
+    });
+  }
   const perDriverDateInput = document.getElementById('per-driver-date');
-  if(perDriverDateInput && !perDriverDateInput.dataset.bound){
-    perDriverDateInput.dataset.bound = '1';
+  if(perDriverDateInput){
     perDriverDateInput.addEventListener('change', (e)=>{
       perDriverDate = e.target.value || todayISO();
-      document.getElementById('per-driver-list').innerHTML = renderPerVehicle();
-      const unassignedEl = document.getElementById('unassigned-list');
-      if(unassignedEl) unassignedEl.innerHTML = renderUnassigned();
-      const onbetaaldEl = document.getElementById('onbetaald-list');
-      if(onbetaaldEl) onbetaaldEl.innerHTML = renderOnbetaald();
-      const vuilEl = document.getElementById('vuil-list');
-      if(vuilEl) vuilEl.innerHTML = renderVuilTerug();
-      bindUnassignedRows();
-      bindPerVehicleRows();
-      bindOtherMiniRows();
+      render();
     });
   }
 }
@@ -1900,14 +1933,12 @@ function cardHtml(d, extraClass){
   const relevantAssign = isAfhalingFase ? d.toegewezenAanAfhaling : d.toegewezenAan;
   const assignField = isAfhalingFase ? 'toegewezenAanAfhaling' : 'toegewezenAan';
   const forMe = isAssignedToMe(relevantAssign);
-  const assignLabel = forMe
-    ? `<span class="assign-badge mine">🚐 Voor jou</span>`
-    : relevantAssign
-      ? `<span class="assign-badge other">✓ ${escapeHtml(relevantAssign.naam)}</span>`
-      : `<select class="quick-assign-select card-quick-assign" data-quick-id="${d.id}" data-quick-field="${assignField}" style="color:var(--danger);border-color:rgba(210,86,79,0.4)">
-          <option value="">⚠ Nog toe te wijzen</option>
-          ${teamsData.map(t=>`<option value="${t.id}">${escapeHtml(t.naam)}</option>`).join('')}
-        </select>`;
+  const assignColor = !relevantAssign ? 'var(--danger)' : (forMe ? 'var(--accent)' : 'var(--ok)');
+  const assignBorder = !relevantAssign ? 'rgba(210,86,79,0.4)' : (forMe ? 'rgba(232,99,30,0.4)' : 'rgba(47,158,122,0.4)');
+  const assignLabel = `<select class="quick-assign-select card-quick-assign" data-quick-id="${d.id}" data-quick-field="${assignField}" style="color:${assignColor};border-color:${assignBorder}">
+      <option value="">⚠ Nog toe te wijzen</option>
+      ${teamsData.map(t=>`<option value="${t.id}" ${relevantAssign && relevantAssign.id===t.id ? 'selected':''}>${forMe && relevantAssign && relevantAssign.id===t.id ? '🚐 ' : '✓ '}${escapeHtml(t.naam)}</option>`).join('')}
+    </select>`;
   const factuurStar = (currentUser.rol === 'admin' && d.betaling.status === 'factuur') ? `<span class="star-badge" title="Nog te factureren">★</span>` : '';
   const verzetBadge = d.afhaling.verzetAangevraagd ? `<span class="assign-badge other" style="background:rgba(217,164,65,0.18);color:var(--warn)">🔁 Verzet aangevraagd</span>` : '';
   const tijdWeergave = d.status === 'te-leveren' ? d.tijdslot : (d.status === 'geplaatst' ? d.afhaaltijd : d.tijdslot);
@@ -3206,14 +3237,12 @@ function dossierCardHtml(d){
   const relevantAssign = isAfhalingFase ? d.toegewezenAanAfhaling : d.toegewezenAan;
   const assignField = isAfhalingFase ? 'toegewezenAanAfhaling' : 'toegewezenAan';
   const forMe = isAssignedToMe(relevantAssign);
-  const assignLabel = forMe
-    ? `<span class="assign-badge mine">🚐 Voor jou</span>`
-    : relevantAssign
-      ? `<span class="assign-badge other">✓ ${escapeHtml(relevantAssign.naam)}</span>`
-      : `<select class="quick-assign-select card-quick-assign" data-quick-id="${d.id}" data-quick-field="${assignField}" style="color:var(--danger);border-color:rgba(210,86,79,0.4)">
-          <option value="">⚠ Nog toe te wijzen</option>
-          ${teamsData.map(t=>`<option value="${t.id}">${escapeHtml(t.naam)}</option>`).join('')}
-        </select>`;
+  const assignColor = !relevantAssign ? 'var(--danger)' : (forMe ? 'var(--accent)' : 'var(--ok)');
+  const assignBorder = !relevantAssign ? 'rgba(210,86,79,0.4)' : (forMe ? 'rgba(232,99,30,0.4)' : 'rgba(47,158,122,0.4)');
+  const assignLabel = `<select class="quick-assign-select card-quick-assign" data-quick-id="${d.id}" data-quick-field="${assignField}" style="color:${assignColor};border-color:${assignBorder}">
+      <option value="">⚠ Nog toe te wijzen</option>
+      ${teamsData.map(t=>`<option value="${t.id}" ${relevantAssign && relevantAssign.id===t.id ? 'selected':''}>${forMe && relevantAssign && relevantAssign.id===t.id ? '🚐 ' : '✓ '}${escapeHtml(t.naam)}</option>`).join('')}
+    </select>`;
   const factuurStar = (currentUser.rol === 'admin' && d.betaling.status === 'factuur') ? `<span class="star-badge" title="Nog te factureren">★</span>` : '';
   const verzetBadge = d.afhaling.verzetAangevraagd ? `<span class="assign-badge other" style="background:rgba(217,164,65,0.18);color:var(--warn)">🔁 Verzet aangevraagd</span>` : '';
   const deleteBtn = currentUser.rol === 'admin' ? `<span class="card-delete-btn" data-delete-id="${d.id}" data-delete-naam="${escapeHtml(d.klant||'')}" title="Verwijderen">✕</span>` : '';
