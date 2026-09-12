@@ -3165,6 +3165,32 @@ async function showApp(){
   setupPushNotifications();
   await loadDeliveries();
   setView('list');
+  startAutoRefresh();
+}
+
+// ---------- Automatisch verversen op de achtergrond ----------
+let autoRefreshTimer = null;
+const AUTOREFRESH_EXCLUDED_VIEWS = ['new']; // enkel het "Nieuwe reservatie"-formulier slaan we altijd over
+function isTypingActive(){
+  const el = document.activeElement;
+  if(!el) return false;
+  const tag = el.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+}
+function startAutoRefresh(){
+  if(autoRefreshTimer) return;
+  autoRefreshTimer = setInterval(async ()=>{
+    if(document.hidden) return; // niet verversen terwijl het tabblad/scherm niet actief is
+    if(AUTOREFRESH_EXCLUDED_VIEWS.includes(view)) return;
+    if(isTypingActive()) return; // iemand is net iets aan het invullen: deze beurt overslaan
+    try{
+      const fresh = await apiFetch('/api/deliveries');
+      deliveries = fresh;
+      persistedIds.clear();
+      deliveries.forEach(d => persistedIds.add(d.id));
+      render();
+    }catch(err){ /* stil negeren bij een tijdelijke netwerkhapering */ }
+  }, 10000);
 }
 
 // ---------- Push-meldingen (enkel geactiveerd wanneer de admin handmatig verstuurt) ----------
