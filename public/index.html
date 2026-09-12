@@ -814,13 +814,14 @@ function renderTeam(){
     <div id="per-driver-list">Laden...</div>
   </div>
   <div class="section">
-    <h3>Locatie chauffeurs</h3>
+    <h3>🚐 Teams live</h3>
     <div style="font-size:12.5px;color:var(--text-dim);margin-bottom:10px;line-height:1.4">
-      Enkel zichtbaar terwijl een chauffeur de app effectief open en actief heeft staan — geen achtergrond-tracking.
+      Enkel zichtbaar terwijl iemand van dat voertuig de app effectief open en actief heeft staan — geen achtergrond-tracking (dat vereist een native app, zie toelichting).
     </div>
     <div id="locations-map" style="height:280px;border-radius:var(--radius);overflow:hidden;background:var(--panel-alt);"></div>
     <div id="locations-list" style="margin-top:10px;font-size:12.5px;color:var(--text-dim)">Laden...</div>
   </div>
+
   <div class="section">
     <h3>Nog toe te wijzen</h3>
     <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">Voor de dag die je hierboven bij "Per voertuig" hebt gekozen.</div>
@@ -1770,6 +1771,23 @@ function timeAgo(iso){
   const h = Math.round(diffMin/60);
   return h + ' u geleden';
 }
+function nextStopForVehicle(teamId){
+  const today = todayISO();
+  const items = deliveries.filter(d => {
+    const forLevering = d.toegewezenAan && d.toegewezenAan.type==='team' && d.toegewezenAan.id===teamId && d.status==='te-leveren' && d.datum===today;
+    const forAfhaling = d.toegewezenAanAfhaling && d.toegewezenAanAfhaling.type==='team' && d.toegewezenAanAfhaling.id===teamId && d.status==='geplaatst' && (d.afhaaldatum||d.datum)===today;
+    return forLevering || forAfhaling;
+  });
+  if(items.length === 0) return null;
+  items.sort((a,b)=>{
+    const at = a.status==='te-leveren' ? sortKeyFor(a,'tijdslot') : sortKeyFor(a,'afhaaltijd');
+    const bt = b.status==='te-leveren' ? sortKeyFor(b,'tijdslot') : sortKeyFor(b,'afhaaltijd');
+    return at - bt;
+  });
+  const next = items[0];
+  const isLevering = next.status === 'te-leveren';
+  return { id: next.id, klant: next.klant, tijd: isLevering ? next.tijdslot : next.afhaaltijd, type: isLevering ? 'levering' : 'afhaling' };
+}
 async function loadDriverLocations(){
   const listEl = document.getElementById('locations-list');
   const mapEl = document.getElementById('locations-map');
@@ -1795,14 +1813,38 @@ async function loadDriverLocations(){
     mapEl.textContent = 'Kaart kon niet geladen worden.';
   }
 
-  if(locs.length === 0){
+  // Groepeer per voertuig (op basis van wie er momenteel in zit), niet per individu
+  const vehicleGroups = teamsData.map(t=>{
+    const teamLocs = locs.filter(l => t.leden.some(led => led.id === l.id));
+    if(teamLocs.length === 0) return null;
+    const latest = teamLocs.reduce((a,b)=> new Date(a.updated_at) > new Date(b.updated_at) ? a : b);
+    return { team: t, loc: latest };
+  }).filter(Boolean);
+  const gekoppeldeIds = new Set(teamsData.flatMap(t=>t.leden.map(l=>l.id)));
+  const overigeLocs = locs.filter(l => !gekoppeldeIds.has(l.id));
+
+  if(vehicleGroups.length === 0 && overigeLocs.length === 0){
     listEl.textContent = 'Nog geen chauffeur heeft de app recent open gehad.';
   } else {
-    listEl.innerHTML = locs.map(l => `<div>📍 ${escapeHtml(l.naam)} — ${timeAgo(l.updated_at)}</div>`).join('');
+    listEl.innerHTML =
+      vehicleGroups.map(g=>{
+        const stop = nextStopForVehicle(g.team.id);
+        const stopTxt = stop ? ` — ${stop.type==='levering'?'onderweg naar':'op te halen bij'} ${escapeHtml(stop.klant)}${stop.tijd?' ('+escapeHtml(stop.tijd)+')':''}` : ' — geen openstaande stops meer vandaag';
+        return `<div>🚐 <b>${escapeHtml(g.team.naam)}</b> — ${timeAgo(g.loc.updated_at)}${stopTxt}</div>`;
+      }).join('') +
+      overigeLocs.map(l => `<div>📍 ${escapeHtml(l.naam)} (geen voertuig gekozen) — ${timeAgo(l.updated_at)}</div>`).join('');
     if(locationsMap){
       try{
         const bounds = [];
-        locs.forEach(l=>{
+        vehicleGroups.forEach(g=>{
+          const stop = nextStopForVehicle(g.team.id);
+          const stopTxt = stop ? `${stop.type==='levering'?'Onderweg naar':'Op te halen bij'} ${escapeHtml(stop.klant)}${stop.tijd?' ('+escapeHtml(stop.tijd)+')':''}` : 'Geen openstaande stops meer vandaag';
+          const marker = L.marker([g.loc.lat, g.loc.lng]).addTo(locationsMap)
+            .bindPopup(`<b>${escapeHtml(g.team.naam)}</b><br>${stopTxt}<br>${timeAgo(g.loc.updated_at)}`);
+          locationMarkers.push(marker);
+          bounds.push([g.loc.lat, g.loc.lng]);
+        });
+        overigeLocs.forEach(l=>{
           const marker = L.marker([l.lat, l.lng]).addTo(locationsMap)
             .bindPopup(escapeHtml(l.naam) + '<br>' + timeAgo(l.updated_at));
           locationMarkers.push(marker);
@@ -1928,22 +1970,24 @@ function primaryProductLabel(d){
   const shown = agg.slice(0,3).map(a => a.aantal>1 ? `${a.naam} x${a.aantal}` : a.naam).join(', ');
   return agg.length > 3 ? `${shown} (+${agg.length - 3} meer)` : shown;
 }
-function cardHtml(d, extraClass){
+function cardHtml(d, extraClass, highlightMine){
   const isAfhalingFase = (d.status === 'geplaatst' || d.status === 'afgerond');
   const relevantAssign = isAfhalingFase ? d.toegewezenAanAfhaling : d.toegewezenAan;
   const assignField = isAfhalingFase ? 'toegewezenAanAfhaling' : 'toegewezenAan';
   const forMe = isAssignedToMe(relevantAssign);
+  const isAnderVoertuig = !!relevantAssign && !forMe;
+  const dimmed = !!highlightMine && isAnderVoertuig;
   const assignColor = !relevantAssign ? 'var(--danger)' : (forMe ? 'var(--accent)' : 'var(--ok)');
   const assignBorder = !relevantAssign ? 'rgba(210,86,79,0.4)' : (forMe ? 'rgba(232,99,30,0.4)' : 'rgba(47,158,122,0.4)');
   const assignLabel = `<select class="quick-assign-select card-quick-assign" data-quick-id="${d.id}" data-quick-field="${assignField}" style="color:${assignColor};border-color:${assignBorder}">
       <option value="">⚠ Nog toe te wijzen</option>
-      ${teamsData.map(t=>`<option value="${t.id}" ${relevantAssign && relevantAssign.id===t.id ? 'selected':''}>${forMe && relevantAssign && relevantAssign.id===t.id ? '🚐 ' : '✓ '}${escapeHtml(t.naam)}</option>`).join('')}
+      ${teamsData.map(t=>`<option value="${t.id}" ${relevantAssign && relevantAssign.id===t.id ? 'selected':''}>${relevantAssign && relevantAssign.id===t.id ? (forMe ? '🚐 ' : '🚛 Ander team: ') : ''}${escapeHtml(t.naam)}</option>`).join('')}
     </select>`;
   const factuurStar = (currentUser.rol === 'admin' && d.betaling.status === 'factuur') ? `<span class="star-badge" title="Nog te factureren">★</span>` : '';
   const verzetBadge = d.afhaling.verzetAangevraagd ? `<span class="assign-badge other" style="background:rgba(217,164,65,0.18);color:var(--warn)">🔁 Verzet aangevraagd</span>` : '';
   const tijdWeergave = d.status === 'te-leveren' ? d.tijdslot : (d.status === 'geplaatst' ? d.afhaaltijd : d.tijdslot);
   const deleteBtn = currentUser.rol === 'admin' ? `<span class="card-delete-btn" data-delete-id="${d.id}" data-delete-naam="${escapeHtml(d.klant||'')}" title="Verwijderen">✕</span>` : '';
-  return `<div class="card status-${d.status} ${forMe?'card-mine':''}" data-id="${d.id}">
+  return `<div class="card status-${d.status} ${forMe?'card-mine':''}" data-id="${d.id}" style="${dimmed?'opacity:0.5':''}">
     <div class="row1">
       <div>
         <div class="klant">${escapeHtml(primaryProductLabel(d))} ${factuurStar}</div>
@@ -2021,9 +2065,8 @@ function renderList(){
     </div>
     ${(dateScope==='komende' && currentUser.rol !== 'admin') ? `<div class="queue-note" style="margin-bottom:16px;text-align:left">Je ziet hier de planning tot en met de komende week. Voor de volledige planning: vraag de admin.</div>` : ''}
   `;
-  let visible = listFilter === 'mij'
-    ? deliveries.filter(d => isAssignedToMe(d.toegewezenAan) || isAssignedToMe(d.toegewezenAanAfhaling))
-    : deliveries;
+  let visible = deliveries; // "Voor mij" filtert niet langer hard weg — dimt enkel ritten van een ander voertuig, zie cardHtml()
+  const highlightMine = listFilter === 'mij';
 
   if(deliveries.length === 0){
     return vehicleOccupancyPanel + `<div class="empty">
@@ -2103,7 +2146,7 @@ function renderList(){
 
     if(teLeveren.length){
       html += `<div class="section-label te-leveren-label">Te leveren</div>`;
-      teLeveren.forEach(d => html += cardHtml(d, teLeverenKey));
+      teLeveren.forEach(d => html += cardHtml(d, teLeverenKey, highlightMine));
     }
     if(geleverdKlaar.length){
       html += `<div class="section-label geleverd-label">Geleverd</div>`;
@@ -2111,7 +2154,7 @@ function renderList(){
     }
     if(opTeHalen.length){
       html += `<div class="section-label op-te-halen-label">Op te halen</div>`;
-      opTeHalen.forEach(d => html += cardHtml(d, opTeHalenKey));
+      opTeHalen.forEach(d => html += cardHtml(d, opTeHalenKey, highlightMine));
     }
     if(nogNietKlaar.length){
       html += `<div class="section-label" style="color:var(--text-dim)"><span style="width:8px;height:8px;border-radius:50%;display:inline-block;background:var(--line);margin-right:6px"></span>Op te halen (nog niet klaar)</div>`;
@@ -2119,7 +2162,7 @@ function renderList(){
     }
     if(afgerond.length){
       html += `<div class="section-label afgerond-label">Afgerond</div>`;
-      afgerond.forEach(d => html += cardHtml(d, ''));
+      afgerond.forEach(d => html += cardHtml(d, '', highlightMine));
     }
     html += `</div>`;
   });
