@@ -533,6 +533,10 @@ button{font-family:'Inter',sans-serif;}
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4zM4 9h16"/></svg>
       Overzicht
     </button>
+    <button data-tab="voertuig" class="tab-btn" id="voertuigTabBtn" style="display:none">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17h1l1.5-4.5A2 2 0 0 1 7.4 11h9.2a2 2 0 0 1 1.9 1.5L20 17h1M5 17h14M7 17a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM21 17a2 2 0 1 1-4 0 2 2 0 0 1 4 0z"/></svg>
+      Voertuig
+    </button>
     <button data-tab="team" class="tab-btn" id="teamTabBtn" style="display:none">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
       Team
@@ -724,6 +728,10 @@ function render(){
       sub.textContent = 'Overzicht';
       main.innerHTML = renderDossiers();
       bindDossierEvents();
+    } else if(view === 'voertuig'){
+      sub.textContent = 'Jouw voertuig';
+      main.innerHTML = renderVoertuigTab();
+      bindVoertuigTabEvents();
     } else if(view === 'team'){
       sub.textContent = 'Team';
       main.innerHTML = renderTeam();
@@ -1039,29 +1047,98 @@ function renderUnassigned(){
   }
   return html;
 }
+function renderVehicleBlock(t, dateStr){
+  const leveringen = deliveries.filter(d => d.toegewezenAan && d.toegewezenAan.type==='team' && d.toegewezenAan.id===t.id && d.datum === dateStr)
+    .sort((a,b)=> sortKeyFor(a,'tijdslot') - sortKeyFor(b,'tijdslot'));
+  const afhalingen = deliveries.filter(d => d.toegewezenAanAfhaling && d.toegewezenAanAfhaling.type==='team' && d.toegewezenAanAfhaling.id===t.id && (d.afhaaldatum || d.datum) === dateStr)
+    .sort((a,b)=> sortKeyFor(a,'afhaaltijd') - sortKeyFor(b,'afhaaltijd'));
+  const totaal = leveringen.length + afhalingen.length;
+  if(totaal === 0) return '';
+  const afgerond = leveringen.filter(d=>d.status==='afgerond').length + afhalingen.filter(d=>d.status==='afgerond').length;
+  const bemanning = t.leden.map(l=>escapeHtml(l.naam)).join(', ') || 'Geen bemanning';
+  return `<details class="driver-block" open>
+    <summary>${escapeHtml(t.naam)} <span class="driver-count">${afgerond}/${totaal} afgerond</span></summary>
+    <div style="font-size:11.5px;color:var(--text-dim);margin:-4px 0 8px">Bemanning: ${bemanning}</div>
+    ${leveringen.length ? `<div class="section-label te-leveren-label">Leveringen</div>${leveringen.map(d=>miniRow(d,'Levering')).join('')}` : ''}
+    ${afhalingen.length ? `<div class="section-label op-te-halen-label">Afhalingen</div>${afhalingen.map(d=>miniRow(d,'Afhaling')).join('')}` : ''}
+    ${leveringen.length ? `<button class="btn small secondary" style="margin-top:10px" data-laadlijst="${t.id}">📄 Laadlijst PDF (${leveringen.length} leveringen)</button>` : ''}
+  </details>`;
+}
 function renderPerVehicle(){
   if(teamsData.length === 0) return `<div class="queue-note" style="text-align:left">Nog geen voertuigen aangemaakt.</div>`;
-  const blocks = teamsData.map(t=>{
-    const leveringen = deliveries.filter(d => d.toegewezenAan && d.toegewezenAan.type==='team' && d.toegewezenAan.id===t.id && d.datum === perDriverDate)
-      .sort((a,b)=> sortKeyFor(a,'tijdslot') - sortKeyFor(b,'tijdslot'));
-    const afhalingen = deliveries.filter(d => d.toegewezenAanAfhaling && d.toegewezenAanAfhaling.type==='team' && d.toegewezenAanAfhaling.id===t.id && (d.afhaaldatum || d.datum) === perDriverDate)
-      .sort((a,b)=> sortKeyFor(a,'afhaaltijd') - sortKeyFor(b,'afhaaltijd'));
-    const totaal = leveringen.length + afhalingen.length;
-    if(totaal === 0) return '';
-    const afgerond = leveringen.filter(d=>d.status==='afgerond').length + afhalingen.filter(d=>d.status==='afgerond').length;
-    const bemanning = t.leden.map(l=>escapeHtml(l.naam)).join(', ') || 'Geen bemanning';
-    return `<details class="driver-block" open>
-      <summary>${escapeHtml(t.naam)} <span class="driver-count">${afgerond}/${totaal} afgerond</span></summary>
-      <div style="font-size:11.5px;color:var(--text-dim);margin:-4px 0 8px">Bemanning: ${bemanning}</div>
-      ${leveringen.length ? `<div class="section-label te-leveren-label">Leveringen</div>${leveringen.map(d=>miniRow(d,'Levering')).join('')}` : ''}
-      ${afhalingen.length ? `<div class="section-label op-te-halen-label">Afhalingen</div>${afhalingen.map(d=>miniRow(d,'Afhaling')).join('')}` : ''}
-      ${leveringen.length ? `<button class="btn small secondary" style="margin-top:10px" data-laadlijst="${t.id}">📄 Laadlijst PDF (${leveringen.length} leveringen)</button>` : ''}
-    </details>`;
-  }).filter(Boolean);
+  const blocks = teamsData.map(t => renderVehicleBlock(t, perDriverDate)).filter(Boolean);
   if(blocks.length === 0){
     return `<div class="queue-note" style="text-align:left">Geen enkel voertuig heeft die dag iets gepland.</div>`;
   }
   return blocks.join('');
+}
+function renderVoertuigTab(){
+  return `
+  <div class="section">
+    <h3>Voertuig</h3>
+    <div class="field" style="margin-bottom:14px">
+      <label>Voertuig bekijken</label>
+      <select id="voertuig-select">
+        ${teamsData.map(t=>`<option value="${t.id}">${escapeHtml(t.naam)}${myTeamIds.includes(t.id) ? ' (jouw voertuig)' : ''}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field" style="margin-bottom:14px">
+      <label>Dag bekijken</label>
+      <input type="date" id="voertuig-date" value="${perDriverDate}">
+    </div>
+    <div id="voertuig-content">Laden...</div>
+  </div>
+  `;
+}
+function renderSelectedVehicleBlock(){
+  if(teamsData.length === 0){
+    return `<div class="queue-note" style="text-align:left">Nog geen voertuigen aangemaakt.</div>`;
+  }
+  const selectEl = document.getElementById('voertuig-select');
+  const teamId = selectEl ? parseInt(selectEl.value,10) : (teamsData.find(t=>myTeamIds.includes(t.id)) || teamsData[0]).id;
+  const t = teamsData.find(x => x.id === teamId);
+  if(!t) return `<div class="queue-note" style="text-align:left">Voertuig niet gevonden.</div>`;
+  const block = renderVehicleBlock(t, perDriverDate);
+  return block || `<div class="queue-note" style="text-align:left">Niets gepland voor ${escapeHtml(t.naam)} op deze dag.</div>`;
+}
+async function bindVoertuigTabEvents(){
+  const selectEl = document.getElementById('voertuig-select');
+  const mineTeam = teamsData.find(t => myTeamIds.includes(t.id));
+  if(selectEl && mineTeam) selectEl.value = mineTeam.id;
+  document.getElementById('voertuig-content').innerHTML = renderSelectedVehicleBlock();
+  bindVoertuigLaadlijstButtons();
+  bindVoertuigRowClicks();
+  selectEl.addEventListener('change', ()=>{
+    document.getElementById('voertuig-content').innerHTML = renderSelectedVehicleBlock();
+    bindVoertuigLaadlijstButtons();
+    bindVoertuigRowClicks();
+  });
+  const dateInput = document.getElementById('voertuig-date');
+  dateInput.addEventListener('change', (e)=>{
+    perDriverDate = e.target.value || todayISO();
+    document.getElementById('voertuig-content').innerHTML = renderSelectedVehicleBlock();
+    bindVoertuigLaadlijstButtons();
+    bindVoertuigRowClicks();
+  });
+}
+function bindVoertuigRowClicks(){
+  document.querySelectorAll('#voertuig-content .mini-row').forEach(row=>{
+    row.addEventListener('click', ()=> setView('detail', row.dataset.id));
+  });
+}
+function bindVoertuigLaadlijstButtons(){
+  document.querySelectorAll('#voertuig-content [data-laadlijst]').forEach(btn=>{
+    btn.addEventListener('click', async (e)=>{
+      e.preventDefault();
+      btn.disabled = true;
+      const orig = btn.textContent;
+      btn.textContent = 'Bezig...';
+      try{ await generateLaadlijstPdf(parseInt(btn.dataset.laadlijst,10), perDriverDate); }
+      catch(err){ showToast(err.message); }
+      btn.disabled = false;
+      btn.textContent = orig;
+    });
+  });
 }
 function materiaalLabelVoorItem(naam, ondergrondNorm){
   const p = findProduct(naam);
@@ -3075,6 +3152,7 @@ async function showApp(){
   document.getElementById('app').style.display = 'flex';
   document.getElementById('teamTabBtn').style.display = (currentUser && currentUser.rol === 'admin') ? '' : 'none';
   document.getElementById('instellingenTabBtn').style.display = (currentUser && currentUser.rol === 'admin') ? '' : 'none';
+  document.getElementById('voertuigTabBtn').style.display = (currentUser && currentUser.rol !== 'admin') ? '' : 'none';
   if(currentUser && currentUser.rol === 'admin'){
     try{ assignableUsers = await apiFetch('/api/users'); }catch(e){ assignableUsers = []; }
   } else {
