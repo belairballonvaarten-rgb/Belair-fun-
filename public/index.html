@@ -1826,8 +1826,14 @@ async function geocodeDelivery(d){
   return d.geo;
 }
 let afhalingenKaart = null;
+const KAART_KLEUREN = ['#E8631E', '#3B82F6', '#2F9E7A', '#D2564F', '#D9A441', '#8B5CF6'];
+function kleurVoorVoertuig(teamId){
+  const idx = teamsData.findIndex(t => t.id === teamId);
+  return KAART_KLEUREN[idx >= 0 ? idx % KAART_KLEUREN.length : 0];
+}
 async function toonAfhalingenKaart(items, containerEl, statusEl, tijdVeld){
   tijdVeld = tijdVeld || 'afhaaltijd';
+  const assignVeld = tijdVeld === 'afhaaltijd' ? 'toegewezenAanAfhaling' : 'toegewezenAan';
   if(items.length === 0){
     statusEl.textContent = 'Niets om te tonen.';
     if(afhalingenKaart){ afhalingenKaart.remove(); afhalingenKaart = null; }
@@ -1844,6 +1850,7 @@ async function toonAfhalingenKaart(items, containerEl, statusEl, tijdVeld){
   afhalingenKaart = L.map(containerEl.id, { attributionControl: false }).setView([50.98, 4.05], 8);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(afhalingenKaart);
 
+  const gebruikteVoertuigen = new Map();
   const bounds = [];
   let gevonden = 0, nietGevonden = [];
   for(let i=0; i<items.length; i++){
@@ -1853,8 +1860,11 @@ async function toonAfhalingenKaart(items, containerEl, statusEl, tijdVeld){
     if(geo){
       gevonden++;
       const tijd = d[tijdVeld];
-      const label = `<b>${escapeHtml(primaryProductLabel(d))}</b><br>${escapeHtml(d.klant||'')}<br>${escapeHtml(tijd||'')} — ${escapeHtml(d.adres||'')}`;
-      L.marker([geo.lat, geo.lng]).addTo(afhalingenKaart)
+      const voertuig = d[assignVeld];
+      const kleur = voertuig ? kleurVoorVoertuig(voertuig.id) : '#888';
+      if(voertuig) gebruikteVoertuigen.set(voertuig.id, { naam: voertuig.naam, kleur });
+      const label = `<b>${escapeHtml(primaryProductLabel(d))}</b><br>${escapeHtml(d.klant||'')}<br>${escapeHtml(tijd||'')} — ${escapeHtml(d.adres||'')}${voertuig ? '<br><span style="color:'+kleur+'">● '+escapeHtml(voertuig.naam)+'</span>' : ''}`;
+      L.circleMarker([geo.lat, geo.lng], { radius: 9, color: kleur, fillColor: kleur, fillOpacity: 0.85, weight: 2 }).addTo(afhalingenKaart)
         .bindPopup(label)
         .bindTooltip(`${i+1}. ${tijd||'?'} — ${d.klant||''}`, { permanent:false });
       bounds.push([geo.lat, geo.lng]);
@@ -1863,7 +1873,11 @@ async function toonAfhalingenKaart(items, containerEl, statusEl, tijdVeld){
     }
   }
   if(bounds.length) afhalingenKaart.fitBounds(bounds, { padding:[30,30], maxZoom: 15 });
-  statusEl.textContent = `${gevonden}/${items.length} adressen gevonden op de kaart.` + (nietGevonden.length ? ' Niet gevonden: ' + nietGevonden.map(escapeHtml).join(', ') + ' (controleer het adres).' : '');
+  let legende = '';
+  if(gebruikteVoertuigen.size > 1){
+    legende = ' — ' + Array.from(gebruikteVoertuigen.values()).map(v => `<span style="color:${v.kleur}">● ${escapeHtml(v.naam)}</span>`).join('  ');
+  }
+  statusEl.innerHTML = `${gevonden}/${items.length} adressen gevonden op de kaart.` + (nietGevonden.length ? ' Niet gevonden: ' + nietGevonden.map(escapeHtml).join(', ') + ' (controleer het adres).' : '') + legende;
   setTimeout(()=> afhalingenKaart && afhalingenKaart.invalidateSize(), 100);
 }
 let kaartVoertuigId = null;
@@ -1880,6 +1894,7 @@ function renderKaartTab(){
     <div class="field" style="margin-bottom:14px">
       <label>Voertuig</label>
       <select id="kaart-voertuig-select">
+        <option value="alle" ${kaartVoertuigId==='alle'?'selected':''}>Alle voertuigen</option>
         ${teamsData.map(t=>`<option value="${t.id}" ${kaartVoertuigId===t.id?'selected':''}>${escapeHtml(t.naam)}${myTeamIds.includes(t.id) ? ' (jouw voertuig)' : ''}</option>`).join('')}
       </select>
     </div>
@@ -1903,11 +1918,12 @@ function renderKaartTab(){
 }
 function kaartItemsVoorSelectie(){
   if(kaartVoertuigId == null) return [];
+  const vehicleIds = kaartVoertuigId === 'alle' ? teamsData.map(t=>t.id) : [kaartVoertuigId];
   if(kaartType === 'afhalingen'){
-    return deliveries.filter(d => d.toegewezenAanAfhaling && d.toegewezenAanAfhaling.type==='team' && d.toegewezenAanAfhaling.id===kaartVoertuigId && (d.afhaaldatum || d.datum) === perDriverDate)
+    return deliveries.filter(d => d.toegewezenAanAfhaling && d.toegewezenAanAfhaling.type==='team' && vehicleIds.includes(d.toegewezenAanAfhaling.id) && (d.afhaaldatum || d.datum) === perDriverDate)
       .sort((a,b)=> sortKeyFor(a,'afhaaltijd') - sortKeyFor(b,'afhaaltijd'));
   }
-  return deliveries.filter(d => d.toegewezenAan && d.toegewezenAan.type==='team' && d.toegewezenAan.id===kaartVoertuigId && d.datum === perDriverDate)
+  return deliveries.filter(d => d.toegewezenAan && d.toegewezenAan.type==='team' && vehicleIds.includes(d.toegewezenAan.id) && d.datum === perDriverDate)
     .sort((a,b)=> sortKeyFor(a,'tijdslot') - sortKeyFor(b,'tijdslot'));
 }
 async function verversKaartTab(){
@@ -1921,7 +1937,7 @@ function bindKaartTabEvents(){
   const voertuigSelect = document.getElementById('kaart-voertuig-select');
   if(!voertuigSelect) return; // geen voertuigen aangemaakt
   voertuigSelect.addEventListener('change', ()=>{
-    kaartVoertuigId = parseInt(voertuigSelect.value, 10);
+    kaartVoertuigId = voertuigSelect.value === 'alle' ? 'alle' : parseInt(voertuigSelect.value, 10);
     verversKaartTab();
   });
   const typePills = document.getElementById('kaart-type-pills');
