@@ -546,6 +546,10 @@ button{font-family:'Inter',sans-serif;}
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17h1l1.5-4.5A2 2 0 0 1 7.4 11h9.2a2 2 0 0 1 1.9 1.5L20 17h1M5 17h14M7 17a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM21 17a2 2 0 1 1-4 0 2 2 0 0 1 4 0z"/></svg>
       Voertuig
     </button>
+    <button data-tab="kaart" class="tab-btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 6v16l7-4 8 4 7-4V2l-7 4-8-4-7 4z"/><path d="M8 2v16M16 6v16"/></svg>
+      Kaart
+    </button>
     <button data-tab="team" class="tab-btn" id="teamTabBtn" style="display:none">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
       Team
@@ -688,6 +692,7 @@ function emptyDelivery(){
     toegewezenAanAfhaling: null, // { id, naam } chauffeur voor afhaling, apart van levering
     handmatigeVolgordeLevering: null, // getal = manueel bepaalde positie bij "Te leveren"
     handmatigeVolgordeAfhaling: null, // getal = manueel bepaalde positie bij "Op te halen" — apart veld, onafhankelijk van levering
+    geo: null, // { lat, lng, voorAdres } — cache van de laatst opgezochte locatie voor dit adres
     plaatsing: {
       correctGeplaatst: false,
       bevestiging: '', // pinnen | zandzakken | verankering | geen
@@ -762,6 +767,10 @@ function render(){
       sub.textContent = 'Jouw voertuig';
       main.innerHTML = renderVoertuigTab();
       bindVoertuigTabEvents();
+    } else if(view === 'kaart'){
+      sub.textContent = 'Kaart';
+      main.innerHTML = renderKaartTab();
+      bindKaartTabEvents();
     } else if(view === 'team'){
       sub.textContent = 'Team';
       main.innerHTML = renderTeam();
@@ -1115,12 +1124,20 @@ function renderVehicleBlock(t, dateStr){
   if(totaal === 0) return '';
   const afgerond = leveringen.filter(d=>d.status==='afgerond').length + afhalingen.filter(d=>d.status==='afgerond').length;
   const bemanning = t.leden.map(l=>escapeHtml(l.naam)).join(', ') || 'Geen bemanning';
+  const mapId = 'afhalingen-kaart-' + t.id;
   return `<details class="driver-block" open>
     <summary>${escapeHtml(t.naam)} <span class="driver-count">${afgerond}/${totaal} afgerond</span></summary>
     <div style="font-size:11.5px;color:var(--text-dim);margin:-4px 0 8px">Bemanning: ${bemanning}</div>
     ${leveringen.length ? `<div class="section-label te-leveren-label">Leveringen</div>${leveringen.map(d=>miniRow(d,'Levering')).join('')}` : ''}
     ${afhalingen.length ? `<div class="section-label op-te-halen-label">Afhalingen</div>${afhalingen.map(d=>miniRow(d,'Afhaling')).join('')}` : ''}
-    ${leveringen.length ? `<button class="btn small secondary" style="margin-top:10px" data-laadlijst="${t.id}">📄 Laadlijst PDF (${leveringen.length} leveringen)</button>` : ''}
+    <div class="stack" style="margin-top:10px">
+      ${leveringen.length ? `<button class="btn small secondary" data-laadlijst="${t.id}">📄 Laadlijst PDF (${leveringen.length} leveringen)</button>` : ''}
+      ${afhalingen.length ? `<button class="btn small secondary" data-afhalingen-kaart="${t.id}">📍 Kaart afhalingen</button>` : ''}
+    </div>
+    ${afhalingen.length ? `
+    <div id="${mapId}-status" style="font-size:11.5px;color:var(--text-dim);margin-top:8px"></div>
+    <div id="${mapId}" style="display:none;height:280px;border-radius:var(--radius);overflow:hidden;background:var(--panel-alt);margin-top:8px"></div>
+    ` : ''}
   </details>`;
 }
 function renderPerVehicle(){
@@ -1218,6 +1235,7 @@ function bindVoertuigLaadlijstButtons(){
       btn.textContent = orig;
     });
   });
+  bindAfhalingenKaartButtons('#voertuig-content');
 }
 function materiaalLabelVoorItem(naam, ondergrondNorm){
   const p = findProduct(naam);
@@ -1398,6 +1416,23 @@ function bindUnassignedRows(){
     });
   });
 }
+function bindAfhalingenKaartButtons(scopeSelector){
+  document.querySelectorAll(scopeSelector + ' [data-afhalingen-kaart]').forEach(btn=>{
+    btn.addEventListener('click', async (e)=>{
+      e.preventDefault();
+      const teamId = parseInt(btn.dataset.afhalingenKaart, 10);
+      const mapId = 'afhalingen-kaart-' + teamId;
+      const containerEl = document.getElementById(mapId);
+      const statusEl = document.getElementById(mapId + '-status');
+      if(!containerEl || !statusEl) return;
+      const items = deliveries.filter(d => d.toegewezenAanAfhaling && d.toegewezenAanAfhaling.type==='team' && d.toegewezenAanAfhaling.id===teamId && (d.afhaaldatum || d.datum) === perDriverDate)
+        .sort((a,b)=> sortKeyFor(a,'afhaaltijd') - sortKeyFor(b,'afhaaltijd'));
+      btn.disabled = true;
+      await toonAfhalingenKaart(items, containerEl, statusEl);
+      btn.disabled = false;
+    });
+  });
+}
 function bindPerVehicleRows(){
   document.querySelectorAll('#per-driver-list .mini-row').forEach(row=>{
     row.addEventListener('click', ()=> setView('detail', row.dataset.id));
@@ -1414,6 +1449,7 @@ function bindPerVehicleRows(){
       btn.textContent = orig;
     });
   });
+  bindAfhalingenKaartButtons('#per-driver-list');
 }
 function bindOtherMiniRows(){
   document.querySelectorAll('#onbetaald-list .mini-row, #vuil-list .mini-row').forEach(row=>{
@@ -1762,6 +1798,161 @@ async function loadTeamsData(){
   }
 }
 
+// ---------- Adressen omzetten naar kaartlocatie (gratis, via OpenStreetMap Nominatim) ----------
+let lastGeocodeAt = 0;
+async function geocodeAddress(adres){
+  if(!adres) return null;
+  try{
+    const wachttijd = Math.max(0, 1100 - (Date.now() - lastGeocodeAt)); // max 1 verzoek/seconde, zoals de gebruiksregels van Nominatim vereisen
+    if(wachttijd > 0) await new Promise(r=>setTimeout(r, wachttijd));
+    lastGeocodeAt = Date.now();
+    const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=be&q=' + encodeURIComponent(adres);
+    const res = await fetch(url, { headers: { 'Accept-Language': 'nl' } });
+    const data = await res.json();
+    if(data && data[0]){
+      return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+    }
+  }catch(err){ console.error('Geocoderen mislukt voor', adres, err); }
+  return null;
+}
+async function geocodeDelivery(d){
+  if(!d.adres) return null;
+  if(d.geo && d.geo.voorAdres === d.adres) return d.geo; // al eerder opgezocht voor exact dit adres
+  const geo = await geocodeAddress(d.adres);
+  if(geo){
+    d.geo = { ...geo, voorAdres: d.adres };
+    saveDeliveries(d).catch(()=>{}); // op de achtergrond bewaren, zodat we dit adres niet telkens opnieuw moeten opzoeken
+  }
+  return d.geo;
+}
+let afhalingenKaart = null;
+async function toonAfhalingenKaart(items, containerEl, statusEl, tijdVeld){
+  tijdVeld = tijdVeld || 'afhaaltijd';
+  if(items.length === 0){
+    statusEl.textContent = 'Niets om te tonen.';
+    if(afhalingenKaart){ afhalingenKaart.remove(); afhalingenKaart = null; }
+    containerEl.style.display = 'none';
+    return;
+  }
+  if(typeof L === 'undefined'){
+    statusEl.textContent = 'Kaart kon niet geladen worden (probeer de pagina te herladen).';
+    return;
+  }
+  statusEl.textContent = `Adressen opzoeken... (0/${items.length})`;
+  containerEl.style.display = '';
+  if(afhalingenKaart){ afhalingenKaart.remove(); afhalingenKaart = null; }
+  afhalingenKaart = L.map(containerEl.id, { attributionControl: false }).setView([50.98, 4.05], 8);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(afhalingenKaart);
+
+  const bounds = [];
+  let gevonden = 0, nietGevonden = [];
+  for(let i=0; i<items.length; i++){
+    const d = items[i];
+    statusEl.textContent = `Adressen opzoeken... (${i+1}/${items.length})`;
+    const geo = await geocodeDelivery(d);
+    if(geo){
+      gevonden++;
+      const tijd = d[tijdVeld];
+      const label = `<b>${escapeHtml(primaryProductLabel(d))}</b><br>${escapeHtml(d.klant||'')}<br>${escapeHtml(tijd||'')} — ${escapeHtml(d.adres||'')}`;
+      L.marker([geo.lat, geo.lng]).addTo(afhalingenKaart)
+        .bindPopup(label)
+        .bindTooltip(`${i+1}. ${tijd||'?'} — ${d.klant||''}`, { permanent:false });
+      bounds.push([geo.lat, geo.lng]);
+    } else {
+      nietGevonden.push(d.klant || d.adres);
+    }
+  }
+  if(bounds.length) afhalingenKaart.fitBounds(bounds, { padding:[30,30], maxZoom: 15 });
+  statusEl.textContent = `${gevonden}/${items.length} adressen gevonden op de kaart.` + (nietGevonden.length ? ' Niet gevonden: ' + nietGevonden.map(escapeHtml).join(', ') + ' (controleer het adres).' : '');
+  setTimeout(()=> afhalingenKaart && afhalingenKaart.invalidateSize(), 100);
+}
+let kaartVoertuigId = null;
+let kaartType = 'afhalingen'; // 'afhalingen' | 'leveringen'
+function renderKaartTab(){
+  if(kaartVoertuigId == null){
+    const mineTeam = teamsData.find(t => myTeamIds.includes(t.id));
+    kaartVoertuigId = mineTeam ? mineTeam.id : (teamsData[0] ? teamsData[0].id : null);
+  }
+  return `
+  <div class="section">
+    <h3>Kaart</h3>
+    ${teamsData.length === 0 ? `<div class="queue-note" style="text-align:left">Nog geen voertuigen aangemaakt.</div>` : `
+    <div class="field" style="margin-bottom:14px">
+      <label>Voertuig</label>
+      <select id="kaart-voertuig-select">
+        ${teamsData.map(t=>`<option value="${t.id}" ${kaartVoertuigId===t.id?'selected':''}>${escapeHtml(t.naam)}${myTeamIds.includes(t.id) ? ' (jouw voertuig)' : ''}</option>`).join('')}
+      </select>
+    </div>
+    <div class="pillgroup" id="kaart-scope-pills" style="margin-bottom:10px">
+      <span class="pill ${perDriverDate===todayISO()?'active':''}" data-val="vandaag">Vandaag</span>
+      <span class="pill ${perDriverDate===tomorrowISO()?'active':''}" data-val="morgen">Morgen</span>
+      <span class="pill ${(perDriverDate!==todayISO() && perDriverDate!==tomorrowISO())?'active':''}" data-val="kies">Kies datum</span>
+    </div>
+    <div class="field" style="margin-bottom:14px;${(perDriverDate===todayISO()||perDriverDate===tomorrowISO())?'display:none':''}" id="kaart-date-wrap">
+      <input type="date" id="kaart-date" value="${perDriverDate}">
+    </div>
+    <div class="pillgroup" id="kaart-type-pills" style="margin-bottom:14px">
+      <span class="pill ${kaartType==='afhalingen'?'active':''}" data-val="afhalingen">Afhalingen</span>
+      <span class="pill ${kaartType==='leveringen'?'active':''}" data-val="leveringen">Leveringen</span>
+    </div>
+    <div id="kaart-status" style="font-size:12px;color:var(--text-dim);margin-bottom:8px"></div>
+    <div id="kaart-map" style="height:400px;border-radius:var(--radius);overflow:hidden;background:var(--panel-alt)"></div>
+    `}
+  </div>
+  `;
+}
+function kaartItemsVoorSelectie(){
+  if(kaartVoertuigId == null) return [];
+  if(kaartType === 'afhalingen'){
+    return deliveries.filter(d => d.toegewezenAanAfhaling && d.toegewezenAanAfhaling.type==='team' && d.toegewezenAanAfhaling.id===kaartVoertuigId && (d.afhaaldatum || d.datum) === perDriverDate)
+      .sort((a,b)=> sortKeyFor(a,'afhaaltijd') - sortKeyFor(b,'afhaaltijd'));
+  }
+  return deliveries.filter(d => d.toegewezenAan && d.toegewezenAan.type==='team' && d.toegewezenAan.id===kaartVoertuigId && d.datum === perDriverDate)
+    .sort((a,b)=> sortKeyFor(a,'tijdslot') - sortKeyFor(b,'tijdslot'));
+}
+async function verversKaartTab(){
+  const mapEl = document.getElementById('kaart-map');
+  const statusEl = document.getElementById('kaart-status');
+  if(!mapEl || !statusEl) return;
+  const items = kaartItemsVoorSelectie();
+  await toonAfhalingenKaart(items, mapEl, statusEl, kaartType==='afhalingen' ? 'afhaaltijd' : 'tijdslot');
+}
+function bindKaartTabEvents(){
+  const voertuigSelect = document.getElementById('kaart-voertuig-select');
+  if(!voertuigSelect) return; // geen voertuigen aangemaakt
+  voertuigSelect.addEventListener('change', ()=>{
+    kaartVoertuigId = parseInt(voertuigSelect.value, 10);
+    verversKaartTab();
+  });
+  const typePills = document.getElementById('kaart-type-pills');
+  typePills.querySelectorAll('.pill').forEach(p=>{
+    p.addEventListener('click', ()=>{
+      kaartType = p.dataset.val;
+      typePills.querySelectorAll('.pill').forEach(x=>x.classList.remove('active'));
+      p.classList.add('active');
+      verversKaartTab();
+    });
+  });
+  const scopePills = document.getElementById('kaart-scope-pills');
+  scopePills.querySelectorAll('.pill').forEach(p=>{
+    p.addEventListener('click', ()=>{
+      if(p.dataset.val === 'vandaag') perDriverDate = todayISO();
+      else if(p.dataset.val === 'morgen') perDriverDate = tomorrowISO();
+      else {
+        const wrap = document.getElementById('kaart-date-wrap');
+        if(wrap){ wrap.style.display = ''; document.getElementById('kaart-date').focus(); }
+        return;
+      }
+      render();
+    });
+  });
+  const dateInput = document.getElementById('kaart-date');
+  dateInput.addEventListener('change', (e)=>{
+    perDriverDate = e.target.value || todayISO();
+    render();
+  });
+  verversKaartTab();
+}
 let locationsMap = null;
 let locationMarkers = [];
 function timeAgo(iso){
@@ -1888,6 +2079,7 @@ async function refreshTeamList(){
 let listFilter = 'alle'; // 'alle' | 'mij'
 let showLeveringen = true;
 let showAfhalingen = true;
+let leveringenManueelIngesteld = false; // zodra iemand zelf op de "Leveringen"-pil klikt, respecteren we die keuze en stopt de automatische uitschakeling
 let dateScope = 'vandaag'; // 'vandaag' | 'morgen' | 'komende'
 let renderedSections = {}; // sectionKey -> geordende array van delivery-ids (voor omhoog/omlaag knoppen)
 
@@ -2049,6 +2241,10 @@ function weekCutoffISO(){
   return d.toISOString().slice(0,10);
 }
 function renderList(){
+  if(!leveringenManueelIngesteld){
+    const today = todayISO();
+    showLeveringen = deliveries.some(d => d.status === 'te-leveren' && d.datum === today);
+  }
   const vehicleOccupancyPanel = renderVehicleOccupancyPanel();
   const filterBar = `
     <div style="display:flex;align-items:center;justify-content:flex-end;margin-bottom:10px">
@@ -2265,7 +2461,7 @@ function bindListEvents(){
   if(typePills){
     typePills.querySelectorAll('.pill').forEach(p=>{
       p.addEventListener('click', ()=>{
-        if(p.dataset.val === 'leveringen') showLeveringen = !showLeveringen;
+        if(p.dataset.val === 'leveringen'){ showLeveringen = !showLeveringen; leveringenManueelIngesteld = true; }
         else if(p.dataset.val === 'afhalingen') showAfhalingen = !showAfhalingen;
         render();
       });
