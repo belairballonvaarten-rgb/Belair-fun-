@@ -1,38 +1,28 @@
-// Belair-Fun service worker — enkel voor push-meldingen, geen offline-caching.
-
-self.addEventListener('install', (event) => {
-  self.skipWaiting();
-});
-
-self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
-});
-
+// Service worker enkel voor push-meldingen (geen offline-cache/etc.) — vangt
+// een binnenkomende push op en toont ze effectief als systeemmelding. Zonder
+// dit bestand komt een push wel aan bij de browser, maar wordt er nooit iets
+// getoond: 'reg.pushManager.subscribe(...)' in index.html/voertuig.html werkt
+// pas zodra hier ook echt een 'push'-listener actief is.
 self.addEventListener('push', (event) => {
-  let data = { title: 'Belair-Fun', message: '' };
-  try {
-    if (event.data) data = event.data.json();
-  } catch (e) {
-    if (event.data) data.message = event.data.text();
-  }
-  const title = data.title || 'Belair-Fun';
-  const options = {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch (e) { data = { title: 'Belair-Fun', message: event.data ? event.data.text() : '' }; }
+  const titel = data.title || 'Belair-Fun';
+  const opties = {
     body: data.message || '',
-    icon: '/icon-192.png',
-    badge: '/icon-192.png',
-    vibrate: [100, 50, 100]
+    data: { url: data.url || '/' },
   };
-  event.waitUntil(self.registration.showNotification(title, options));
+  event.waitUntil(self.registration.showNotification(titel, opties));
 });
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || '/';
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {
-        if ('focus' in client) return client.focus();
+        if (client.url.includes(url) && 'focus' in client) return client.focus();
       }
-      if (clients.openWindow) return clients.openWindow('/');
+      if (clients.openWindow) return clients.openWindow(url);
     })
   );
 });

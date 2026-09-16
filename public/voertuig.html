@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Belair-Fun — Voertuig</title>
+<style>
+  :root{ --oranje:#e8631e; --bg:#f7f7f8; --tekst:#1e1e22; --tekst-dim:#767680; --lijn:#e2e2e6; --groen:#2e8b57; }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--tekst);}
+  .wrap{max-width:520px;margin:0 auto;padding:20px 16px 60px;}
+  h1{font-size:1.3rem;margin:0 0 4px;}
+  .sub{color:var(--tekst-dim);font-size:0.9rem;margin:0 0 20px;}
+  .kaart{background:#fff;border:1px solid var(--lijn);border-radius:12px;padding:16px;margin-bottom:14px;}
+  label{display:block;font-size:0.85rem;color:var(--tekst-dim);margin-bottom:4px;margin-top:12px;}
+  label:first-child{margin-top:0;}
+  select,input[type=text],input[type=password]{width:100%;padding:10px;border:1px solid var(--lijn);border-radius:8px;font-size:1rem;}
+  button{margin-top:16px;width:100%;padding:12px;border:none;border-radius:8px;background:var(--oranje);color:#fff;font-size:1rem;font-weight:600;cursor:pointer;}
+  button.secundair{background:#fff;color:var(--tekst);border:1px solid var(--lijn);margin-top:8px;}
+  .fout{color:#c23f38;font-size:0.85rem;margin-top:10px;}
+  .stop{border-bottom:1px solid var(--lijn);padding:10px 0;}
+  .stop:last-child{border-bottom:none;}
+  .stop .titel{font-weight:600;}
+  .stop .sub2{color:var(--tekst-dim);font-size:0.85rem;margin-top:2px;}
+  .leeg{color:var(--tekst-dim);font-size:0.9rem;padding:6px 0;}
+  .melding{border-bottom:1px solid var(--lijn);padding:8px 0;}
+  .melding:last-child{border-bottom:none;}
+  .melding .titel{font-weight:600;}
+  .melding .tijd{color:var(--tekst-dim);font-size:0.78rem;}
+  .kop{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;}
+  .kop .naam{font-weight:700;font-size:1.1rem;}
+  .uitloggen{background:none;border:none;color:var(--tekst-dim);font-size:0.85rem;width:auto;margin:0;padding:4px;text-decoration:underline;cursor:pointer;}
+  h2{font-size:1rem;margin:0 0 10px;}
+  .push-status{font-size:0.85rem;color:var(--tekst-dim);margin-top:8px;}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+<script>
+let deviceToken = localStorage.getItem('bf-device-token');
+let voertuigNaam = localStorage.getItem('bf-device-naam');
+
+async function apiFetch(path, opts){
+  opts = opts || {};
+  const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
+  if(deviceToken) headers['Authorization'] = 'Bearer ' + deviceToken;
+  const res = await fetch(path, Object.assign({}, opts, { headers }));
+  if(res.status === 401){ logout(); throw new Error('Sessie verlopen — meld opnieuw aan'); }
+  let body = null;
+  try{ body = await res.json(); }catch(e){}
+  if(!res.ok) throw new Error((body && body.error) || 'Er ging iets mis');
+  return body;
+}
+function logout(){
+  deviceToken = null; voertuigNaam = null;
+  localStorage.removeItem('bf-device-token');
+  localStorage.removeItem('bf-device-naam');
+  render();
+}
+
+function urlBase64ToUint8Array(base64String){
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g,'+').replace(/_/g,'/');
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+async function setupPushNotifications(statusEl){
+  try{
+    if(!('serviceWorker' in navigator) || !('PushManager' in window)){ if(statusEl) statusEl.textContent = 'Pushmeldingen worden niet ondersteund op dit toestel/deze browser.'; return; }
+    const reg = await navigator.serviceWorker.register('/sw.js');
+    const { key } = await apiFetch('/api/push/public-key');
+    if(!key){ if(statusEl) statusEl.textContent = 'Pushmeldingen zijn nog niet ingesteld op de server.'; return; }
+    if(Notification.permission === 'denied'){ if(statusEl) statusEl.textContent = 'Meldingen geblokkeerd voor deze pagina — zet aan in de browserinstellingen.'; return; }
+    if(Notification.permission !== 'granted'){
+      const perm = await Notification.requestPermission();
+      if(perm !== 'granted'){ if(statusEl) statusEl.textContent = 'Geen toestemming gegeven voor meldingen.'; return; }
+    }
+    let sub = await reg.pushManager.getSubscription();
+    if(!sub){
+      sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(key) });
+    }
+    await apiFetch('/api/push/subscribe', { method:'POST', body: JSON.stringify(sub) });
+    if(statusEl) statusEl.textContent = '✓ Meldingen staan aan voor dit toestel.';
+  }catch(err){
+    if(statusEl) statusEl.textContent = 'Meldingen instellen mislukt: ' + err.message;
+  }
+}
+
+function fmtTijd(t){ return t || '?'; }
+function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function fmtDatumTijd(iso){
+  if(!iso) return '';
+  const d = new Date(iso);
+  return d.toLocaleDateString('nl-BE', { day:'numeric', month:'short' }) + ' ' + d.toLocaleTimeString('nl-BE', { hour:'2-digit', minute:'2-digit' });
+}
+
+async function render(){
+  const app = document.getElementById('app');
+  if(!deviceToken){
+    app.innerHTML = `
+      <h1>🚐 Voertuig-toegang</h1>
+      <p class="sub">Eenmalig instellen voor dit toestel — daarna blijft het ingelogd.</p>
+      <div class="kaart">
+        <label>Voertuig</label>
+        <select id="v-select"><option value="">Laden...</option></select>
+        <label>Toegangscode</label>
+        <input type="password" id="v-code" inputmode="numeric" placeholder="Code van dit voertuig">
+        <button id="v-login-btn">Aanmelden</button>
+        <p class="fout" id="v-fout"></p>
+      </div>
+    `;
+    try{
+      const voertuigen = await apiFetch('/api/voertuigen-publiek');
+      document.getElementById('v-select').innerHTML = voertuigen.length
+        ? voertuigen.map(v => `<option value="${v.id}">${escapeHtml(v.naam)}</option>`).join('')
+        : '<option value="">Geen voertuigen gevonden</option>';
+    }catch(e){ document.getElementById('v-fout').textContent = e.message; }
+    document.getElementById('v-login-btn').addEventListener('click', async () => {
+      const voertuigId = document.getElementById('v-select').value;
+      const code = document.getElementById('v-code').value.trim();
+      const fout = document.getElementById('v-fout');
+      fout.textContent = '';
+      if(!voertuigId || !code){ fout.textContent = 'Kies een voertuig en vul de code in'; return; }
+      try{
+        const r = await fetch('/api/device-login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ voertuigId, code }) });
+        const body = await r.json();
+        if(!r.ok) throw new Error(body.error || 'Aanmelden mislukt');
+        deviceToken = body.token; voertuigNaam = body.voertuig.naam;
+        localStorage.setItem('bf-device-token', deviceToken);
+        localStorage.setItem('bf-device-naam', voertuigNaam);
+        render();
+      }catch(e){ fout.textContent = e.message; }
+    });
+    return;
+  }
+
+  app.innerHTML = `
+    <div class="kop">
+      <div><div class="naam">🚐 ${escapeHtml(voertuigNaam)}</div><div class="sub" style="margin:0">Vandaag</div></div>
+      <button class="uitloggen" id="v-uitloggen-btn">toestel afmelden</button>
+    </div>
+    <div class="kaart">
+      <h2>Te leveren</h2>
+      <div id="v-leveringen" class="leeg">Laden...</div>
+    </div>
+    <div class="kaart">
+      <h2>Af te halen</h2>
+      <div id="v-afhalingen" class="leeg">Laden...</div>
+    </div>
+    <div class="kaart">
+      <h2>Meldingen</h2>
+      <div id="v-meldingen" class="leeg">Laden...</div>
+      <button class="secundair" id="v-push-btn">🔔 Meldingen aanzetten voor dit toestel</button>
+      <p class="push-status" id="v-push-status"></p>
+    </div>
+  `;
+  document.getElementById('v-uitloggen-btn').addEventListener('click', () => {
+    if(confirm('Dit toestel afmelden als ' + voertuigNaam + '? Je hebt dan de toegangscode opnieuw nodig.')) logout();
+  });
+  document.getElementById('v-push-btn').addEventListener('click', () => setupPushNotifications(document.getElementById('v-push-status')));
+
+  try{
+    const data = await apiFetch('/api/device/vandaag');
+    const levEl = document.getElementById('v-leveringen');
+    levEl.innerHTML = data.leveringen.length ? data.leveringen.map(d => `
+      <div class="stop">
+        <div class="titel">${fmtTijd(d.tijdslot)} — ${escapeHtml(d.klant || 'Naamloos')}</div>
+        <div class="sub2">${escapeHtml(d.adres || '')}</div>
+        <div class="sub2">${escapeHtml(d.artikelen || '')}</div>
+      </div>
+    `).join('') : '<p class="leeg">Niets te leveren vandaag.</p>';
+    const afhEl = document.getElementById('v-afhalingen');
+    afhEl.innerHTML = data.afhalingen.length ? data.afhalingen.map(d => `
+      <div class="stop">
+        <div class="titel">${fmtTijd(d.afhaaltijd)} — ${escapeHtml(d.klant || 'Naamloos')}</div>
+        <div class="sub2">${escapeHtml(d.adres || '')}</div>
+      </div>
+    `).join('') : '<p class="leeg">Niets af te halen vandaag.</p>';
+  }catch(e){
+    document.getElementById('v-leveringen').textContent = e.message;
+  }
+
+  try{
+    const meldingen = await apiFetch('/api/device/meldingen');
+    const el = document.getElementById('v-meldingen');
+    el.innerHTML = meldingen.length ? meldingen.map(m => `
+      <div class="melding">
+        <div class="titel">${escapeHtml(m.titel)}</div>
+        <div>${escapeHtml(m.bericht)}</div>
+        <div class="tijd">${fmtDatumTijd(m.aangemaakt_op)}</div>
+      </div>
+    `).join('') : '<p class="leeg">Nog geen meldingen.</p>';
+  }catch(e){
+    document.getElementById('v-meldingen').textContent = e.message;
+  }
+}
+
+render();
+// Elke paar minuten verversen zolang het scherm openstaat — dit is een vast
+// kiosk-toestel, geen actieve gebruiker die zelf ververst.
+setInterval(() => { if(deviceToken) render(); }, 3 * 60 * 1000);
+</script>
+</body>
+</html>
