@@ -328,6 +328,12 @@ const DELIVERIES_SELECT = `
     GROUP BY bp.boeking_id
   ) bp ON bp.boeking_id = b.id
   WHERE b.status = ANY($1)
+    -- b.status ("bevestigd" e.d.) blijft voor altijd staan, ook lang na de
+    -- uitvoering — dus zonder datumgrens komt hier elke ooit-bevestigde
+    -- boeking in te staan, tot jaren terug. Daarom enkel boekingen tonen
+    -- waarvan de leverdatum ÓF afhaaldatum niet meer dan een paar dagen
+    -- geleden is (kleine marge voor een afhaling die net iets te laat is).
+    AND GREATEST(b.gewenste_datum_start, b.gewenste_datum_einde) >= (CURRENT_DATE - INTERVAL '3 days')
 `;
 
 function rijNaarLevering(row, voertuigenPerNaam) {
