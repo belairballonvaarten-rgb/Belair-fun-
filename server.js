@@ -4,7 +4,6 @@ const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const path = require('path');
-const XLSX = require('xlsx');
 const webpush = require('web-push');
 
 if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
@@ -16,9 +15,27 @@ if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
 }
 
 const app = express();
-app.use(express.json({ limit: '20mb' })); // foto's en Excel-import zijn base64, dus ruim genoeg limiet
+app.use(express.json({ limit: '20mb' })); // foto's zijn base64, dus ruim genoeg limiet
 app.use(express.static(path.join(__dirname, 'public')));
 
+// ============================================================
+// STAGE 3 — GEDEELDE DATABANK MET HET BOEKINGSPLATFORM
+// ============================================================
+// Vanaf hier draait deze app rechtstreeks op DEZELFDE Postgres-databank als
+// het boekingsplatform (belair-boekingsplatform) — DATABASE_URL moet dus
+// bij Render op die databank wijzen, niet meer op de vroegere, eigen databank
+// van deze app. Boekingen/klanten/producten/leveringen/voertuigen bestaan
+// enkel nog daar; deze app maakt ze niet meer zelf aan en schrijft er ook
+// nooit een nieuwe boeking (reservatie) in weg — dat blijft uitsluitend een
+// taak van het boekingsplatform. Wat hier wél nog leeft, is puur
+// app-specifiek: gebruikers/login, push-abonnementen, instellingen en
+// live-locatie tijdens gebruik.
+//
+// De oude, eigen tabellen van deze app (deliveries, photos, teams,
+// team_members, en zijn eigen 'producten'-kopie) worden hier bewust NIET
+// meer aangemaakt of gebruikt. Bestaan ze nog in de oude databank, dan mogen
+// die gerust blijven staan als opkuis voor later — Jonas heeft bevestigd dat
+// die oudere/losstaande gegevens verloren mogen gaan zodra de overstap rond is.
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.DATABASE_URL && !process.env.DATABASE_URL.includes('localhost')
@@ -30,6 +47,10 @@ const JWT_SECRET = process.env.JWT_SECRET || 'verander-deze-waarde';
 const SETUP_KEY = process.env.SETUP_KEY || 'verander-deze-waarde-ook';
 
 async function initDb() {
+  // Enkel de tabellen die uitsluitend van DEZE app zijn — alle boekings-/
+  // leverings-/voertuiggegevens leven op het gedeelde platform-schema
+  // (migraties in belair-boekingsplatform/src/db/migrations), dat al draait
+  // tegen de tijd dat deze app opstart.
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users(
       id SERIAL PRIMARY KEY,
@@ -37,20 +58,6 @@ async function initDb() {
       password_hash TEXT NOT NULL,
       naam TEXT NOT NULL,
       rol TEXT NOT NULL DEFAULT 'plaatser',
-      created_at TIMESTAMPTZ DEFAULT now()
-    );
-    CREATE TABLE IF NOT EXISTS deliveries(
-      id TEXT PRIMARY KEY,
-      data JSONB NOT NULL,
-      created_by INTEGER REFERENCES users(id),
-      created_at TIMESTAMPTZ DEFAULT now(),
-      updated_at TIMESTAMPTZ DEFAULT now()
-    );
-    CREATE TABLE IF NOT EXISTS photos(
-      id SERIAL PRIMARY KEY,
-      delivery_id TEXT REFERENCES deliveries(id) ON DELETE CASCADE,
-      naam TEXT,
-      data_url TEXT,
       created_at TIMESTAMPTZ DEFAULT now()
     );
     CREATE TABLE IF NOT EXISTS locations(
@@ -71,29 +78,6 @@ async function initDb() {
       auth TEXT NOT NULL,
       created_at TIMESTAMPTZ DEFAULT now()
     );
-    CREATE TABLE IF NOT EXISTS teams(
-      id SERIAL PRIMARY KEY,
-      naam TEXT NOT NULL,
-      created_at TIMESTAMPTZ DEFAULT now()
-    );
-    CREATE TABLE IF NOT EXISTS team_members(
-      team_id INTEGER REFERENCES teams(id) ON DELETE CASCADE,
-      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-      PRIMARY KEY (team_id, user_id)
-    );
-    CREATE TABLE IF NOT EXISTS producten(
-      naam TEXT PRIMARY KEY,
-      opmerking TEXT,
-      motor_type TEXT,
-      aantal_motors INTEGER,
-      verlengkabel_standaard INTEGER,
-      verlengkabel_dubbel INTEGER,
-      pinnen INTEGER,
-      zandzakken INTEGER,
-      valmatten INTEGER,
-      overige TEXT,
-      updated_at TIMESTAMPTZ DEFAULT now()
-    );
   `);
 }
 
@@ -105,71 +89,47 @@ function signToken(user) {
   );
 }
 
-let idCounter = 0;
-function genId() {
-  idCounter++;
-  return 'd' + Date.now().toString(36) + idCounter.toString(36) + Math.random().toString(36).slice(2, 6);
+// ---------- Kleine datum/tijd-helpers (zelfde conventies als het platform) ----------
+const HHMM_REGEX = /^\d{2}:\d{2}$/;
+const ISODATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+
+function naarDatumString(waarde) {
+  if (!waarde) return '';
+  return new Date(waarde).toISOString().slice(0, 10);
+}
+// Zelfde aanpak als sync.js op het platform: TIMESTAMPTZ -> HH:MM. Let op,
+// dit is bewust identiek aan de bestaande platformcode (ook al zou je in
+// een niet-UTC tijdzone strikt genomen liever de lokale tijd aflezen) —
+// consistent blijven met hoe het platform dit al overal doet is hier
+// belangrijker dan dit in mijn eentje "corrigeren".
+function naarTijdString(waarde) {
+  if (!waarde) return '';
+  return new Date(waarde).toISOString().slice(11, 16);
+}
+function naarIntOfNull(v) {
+  if (v === '' || v === undefined || v === null) return null;
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) ? n : null;
+}
+function naarBoolOfNull(v) {
+  if (v === undefined) return null;
+  return !!v;
 }
 
-function emptyDeliveryServer() {
-  return {
-    id: genId(),
-    klant: '', telefoon: '', email: '', adres: '', postcode: '', ondergrond: '',
-    datum: '', tijdslot: '',
-    afhaaldatum: '', afhaaltijd: '',
-    artikelen: '', bedrag: '', boekingsnummer: '',
-    status: 'te-leveren',
-    toegewezenAan: null,
-    toegewezenAanAfhaling: null,
-    handmatigeVolgordeLevering: null,
-    handmatigeVolgordeAfhaling: null,
-    geo: null,
-    oorspronkelijkBedrag: null,
-    plaatsing: {
-      correctGeplaatst: false, bevestiging: '', valmatten: false, verlengkabel: false,
-      aantalKabels: '', aantalZandzakken: '', netjes: false, opmerkingen: '', tijdstip: '', bevestigd: false, bevestigdOp: ''
-    },
-    betaling: { status: '', opmerking: '' },
-    afhaling: {
-      valmattenTerug: false, kabelsTerug: false, bevestigingTerug: false, natOfVuil: false, reinigingNodig: false,
-      opmerkingen: '', tijdstip: '', bevestigd: false, bevestigdOp: '',
-      verzetAangevraagd: false, verzetNaarDatum: '', verzetReden: ''
-    }
-  };
+// Zelfde logica als dashboard.js/sync.js op het platform: bij zelfafhaling is
+// er geen leveringsadres nodig; anders valt het terug op het adres van de
+// klant zelf zolang er geen (afwijkend) leveringsadres expliciet is ingevuld.
+function berekenAdres(row) {
+  if (row.leveringswijze === 'afhaling') return '';
+  return row.leveringsadres
+    || [row.klant_adres, [row.klant_postcode, row.klant_gemeente].filter(Boolean).join(' ')]
+      .filter(Boolean).join(', ');
 }
 
-function normalizeDate(v) {
-  if (!v) return '';
-  const s = String(v).trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  const d = new Date(s);
-  if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
-  return s;
-}
-function normalizeTime(v) {
-  if (!v) return '';
-  const s = String(v).trim();
-  const m = s.match(/^(\d{1,2}):(\d{2})/);
-  if (m) return m[1].padStart(2, '0') + ':' + m[2];
-  return s;
-}
-function normalizeOndergrond(v) {
-  if (!v) return '';
-  const s = String(v).toLowerCase();
-  if (s.includes('hard')) return 'Harde ondergrond';
-  if (s.includes('gras') || s.includes('grass')) return 'Op gras';
-  if (s.includes('no selection') || s.includes('n/a') || s.includes('none')) return '';
-  return v;
-}
-function getField(row, ...names) {
-  for (const key of Object.keys(row)) {
-    const norm = key.trim().toLowerCase();
-    if (names.some(n => n.toLowerCase() === norm)) {
-      const v = row[key];
-      return v === undefined || v === null ? '' : String(v).trim();
-    }
-  }
-  return '';
+function statusVoorLevering(leveringVoltooid, afhalingVoltooid) {
+  if (afhalingVoltooid) return 'afgerond';
+  if (leveringVoltooid) return 'geplaatst';
+  return 'te-leveren';
 }
 
 // ---------- Dropbox (optionele automatische kopie van foto's) ----------
@@ -322,191 +282,319 @@ app.delete('/api/users/:id', auth, adminOnly, async (req, res) => {
   res.json({ ok: true });
 });
 
-// ---------- Leveringen (gedeelde planning, iedereen ziet alles) ----------
-app.get('/api/deliveries', auth, async (req, res) => {
-  const r = await pool.query('SELECT data FROM deliveries ORDER BY updated_at DESC');
-  res.json(r.rows.map(row => row.data));
-});
-app.post('/api/deliveries', auth, async (req, res) => {
-  const d = req.body;
-  if (!d || !d.id) return res.status(400).json({ error: 'Ongeldige levering' });
-  await pool.query('INSERT INTO deliveries(id, data, created_by) VALUES ($1,$2,$3)', [d.id, d, req.user.id]);
-  res.json({ ok: true });
-});
-app.put('/api/deliveries/:id', auth, async (req, res) => {
-  const d = req.body;
-  const oud = await pool.query('SELECT data FROM deliveries WHERE id=$1', [req.params.id]);
-  const oudeStatus = oud.rows[0] ? oud.rows[0].data.status : null;
-  await pool.query('UPDATE deliveries SET data=$1, updated_at=now() WHERE id=$2', [d, req.params.id]);
-  res.json({ ok: true });
+// ============================================================
+// LEVERINGEN — gelezen/geschreven rechtstreeks op boekingen/klanten/
+// leveringen/boeking_producten/producten van het boekingsplatform.
+// ============================================================
 
-  // Live terugkoppelen naar het boekingsplatform zodra de status van deze
-  // levering effectief wijzigt (bv. chauffeur zet "te-leveren" -> "geplaatst"
-  // -> "afgerond", of zet iets terug) — zo verschijnt "voltooid" op het
-  // Dashboard daar zonder dat iemand daar nog op "Nu synchroniseren" moet
-  // drukken. Gebeurt PAS NA het antwoorden aan de chauffeur (die actie zelf
-  // wordt hierdoor dus niet vertraagd), en een fout hier (boekingsplatform
-  // niet bereikbaar/niet geconfigureerd) blokkeert die actie ook niet — de
-  // bestaande "Nu synchroniseren"-knop daar blijft als terugvaloptie werken.
-  if (d.boekingsnummer && d.status !== oudeStatus) {
-    stuurStatusNaarBoekingsplatform(d.boekingsnummer, d.status)
-      .catch((e) => console.warn('[sync] kon status niet live terugsturen naar het boekingsplatform:', e.message));
+// Zelfde statuslijst als het boekingsplatform gebruikt op Dashboard/Planning:
+// enkel "definitief genoeg" geplande boekingen zijn interessant voor de crew
+// — een kale website-aanvraag die Jonas nog niet aanvaard heeft, hoort hier
+// niet tussen te staan.
+const GEPLANDE_STATUSSEN = [
+  'geaccepteerd', 'ingepland', 'bevestigd', 'betaalverzoek_verstuurd',
+  'betaald_deels', 'betaald_volledig', 'gefactureerd', 'voldaan_manueel',
+];
+
+const DELIVERIES_SELECT = `
+  SELECT b.id, b.leveringswijze, b.leveringsadres, b.type_ondergrond,
+         b.gewenste_datum_start, b.gewenste_datum_einde,
+         k.naam AS klant, k.telefoon, k.email,
+         k.adres AS klant_adres, k.postcode AS klant_postcode, k.gemeente AS klant_gemeente,
+         l.id AS leveringen_id, l.voertuig_levering, l.voertuig_afhaling,
+         l.leveringstijd, l.afhaaltijd,
+         l.volgorde_levering, l.volgorde_afhaling,
+         COALESCE(l.levering_voltooid, false) AS levering_voltooid,
+         COALESCE(l.afhaling_voltooid, false) AS afhaling_voltooid,
+         l.plaatsing_correct, l.plaatsing_bevestiging, l.plaatsing_valmatten, l.plaatsing_verlengkabel,
+         l.plaatsing_aantal_kabels, l.plaatsing_aantal_zandzakken, l.plaatsing_netjes, l.plaatsing_opmerkingen,
+         COALESCE(l.plaatsing_bevestigd, false) AS plaatsing_bevestigd, l.plaatsing_bevestigd_op,
+         l.afhaling_valmatten_terug, l.afhaling_kabels_terug, l.afhaling_bevestiging_terug,
+         l.afhaling_nat_of_vuil, l.afhaling_reiniging_nodig, l.afhaling_opmerkingen,
+         COALESCE(l.afhaling_bevestigd, false) AS afhaling_bevestigd, l.afhaling_bevestigd_op,
+         COALESCE(l.afhaling_verzet_aangevraagd, false) AS afhaling_verzet_aangevraagd,
+         l.afhaling_verzet_naar_datum, l.afhaling_verzet_reden,
+         l.betaling_ter_plekke_status, l.betaling_ter_plekke_opmerking,
+         bp.producten_namen, COALESCE(bp.totaal, 0) AS totaal
+  FROM boekingen b
+  JOIN klanten k ON k.id = b.klant_id
+  LEFT JOIN leveringen l ON l.boeking_id = b.id
+  LEFT JOIN (
+    SELECT bp.boeking_id,
+           string_agg(p.naam || CASE WHEN bp.aantal > 1 THEN ' (x' || bp.aantal || ')' ELSE '' END, ', ' ORDER BY p.naam) AS producten_namen,
+           SUM(bp.prijs * bp.aantal) AS totaal
+    FROM boeking_producten bp
+    JOIN producten p ON p.id = bp.product_id
+    GROUP BY bp.boeking_id
+  ) bp ON bp.boeking_id = b.id
+  WHERE b.status = ANY($1)
+`;
+
+function rijNaarLevering(row, voertuigenPerNaam) {
+  function toewijzing(naam) {
+    if (!naam) return null;
+    const v = voertuigenPerNaam.get(naam.toLowerCase());
+    return { type: 'team', id: v ? v.id : null, naam };
   }
-});
-
-// Zelfde gedeelde sleutel als de binnenkomende sync (SYNC_SECRET_BOEKINGSPLATFORM) —
-// hier gebruikt om onszelf bij het boekingsplatform te identificeren, want die
-// kant verwacht exact dezelfde waarde terug in LEVERINGEN_APP_SYNC_SECRET.
-async function stuurStatusNaarBoekingsplatform(boekingsnummer, status) {
-  const url = process.env.BOEKINGSPLATFORM_URL;
-  const sleutel = process.env.SYNC_SECRET_BOEKINGSPLATFORM;
-  if (!url || !sleutel) return; // koppeling (nog) niet geconfigureerd — stil overslaan
-  const resp = await fetch(url.replace(/\/$/, '') + '/api/sync/leveringen-app/status-update', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Belair-Sync-Key': sleutel },
-    body: JSON.stringify({ boekingsnummer, status }),
-  });
-  if (!resp.ok) throw new Error(`boekingsplatform antwoordde met status ${resp.status}`);
+  const bedragNum = Math.round(Number(row.totaal || 0));
+  return {
+    id: row.id,
+    klant: row.klant || '',
+    telefoon: row.telefoon || '',
+    email: row.email || '',
+    adres: berekenAdres(row),
+    postcode: row.klant_postcode || '',
+    ondergrond: row.type_ondergrond || '',
+    datum: naarDatumString(row.gewenste_datum_start),
+    tijdslot: naarTijdString(row.leveringstijd),
+    afhaaldatum: naarDatumString(row.gewenste_datum_einde),
+    afhaaltijd: naarTijdString(row.afhaaltijd),
+    artikelen: row.producten_namen || '',
+    bedrag: bedragNum > 0 ? String(bedragNum) : '',
+    boekingsnummer: row.id,
+    status: statusVoorLevering(row.levering_voltooid, row.afhaling_voltooid),
+    toegewezenAan: toewijzing(row.voertuig_levering),
+    toegewezenAanAfhaling: toewijzing(row.voertuig_afhaling),
+    handmatigeVolgordeLevering: row.volgorde_levering != null ? row.volgorde_levering : null,
+    handmatigeVolgordeAfhaling: row.volgorde_afhaling != null ? row.volgorde_afhaling : null,
+    geo: null,
+    oorspronkelijkBedrag: null,
+    plaatsing: {
+      correctGeplaatst: !!row.plaatsing_correct,
+      bevestiging: row.plaatsing_bevestiging || '',
+      valmatten: !!row.plaatsing_valmatten,
+      verlengkabel: !!row.plaatsing_verlengkabel,
+      aantalKabels: row.plaatsing_aantal_kabels != null ? String(row.plaatsing_aantal_kabels) : '',
+      aantalZandzakken: row.plaatsing_aantal_zandzakken != null ? String(row.plaatsing_aantal_zandzakken) : '',
+      netjes: !!row.plaatsing_netjes,
+      opmerkingen: row.plaatsing_opmerkingen || '',
+      tijdstip: '',
+      bevestigd: !!row.plaatsing_bevestigd,
+      bevestigdOp: row.plaatsing_bevestigd_op ? new Date(row.plaatsing_bevestigd_op).toISOString() : ''
+    },
+    betaling: {
+      status: row.betaling_ter_plekke_status || '',
+      opmerking: row.betaling_ter_plekke_opmerking || ''
+    },
+    afhaling: {
+      valmattenTerug: !!row.afhaling_valmatten_terug,
+      kabelsTerug: !!row.afhaling_kabels_terug,
+      bevestigingTerug: !!row.afhaling_bevestiging_terug,
+      natOfVuil: !!row.afhaling_nat_of_vuil,
+      reinigingNodig: !!row.afhaling_reiniging_nodig,
+      opmerkingen: row.afhaling_opmerkingen || '',
+      tijdstip: '',
+      bevestigd: !!row.afhaling_bevestigd,
+      bevestigdOp: row.afhaling_bevestigd_op ? new Date(row.afhaling_bevestigd_op).toISOString() : '',
+      verzetAangevraagd: !!row.afhaling_verzet_aangevraagd,
+      verzetNaarDatum: naarDatumString(row.afhaling_verzet_naar_datum),
+      verzetReden: row.afhaling_verzet_reden || ''
+    }
+  };
 }
-app.delete('/api/deliveries/:id', auth, adminOnly, async (req, res) => {
-  await pool.query('DELETE FROM deliveries WHERE id=$1', [req.params.id]);
-  res.json({ ok: true });
+
+async function haalVoertuigenPerNaamOp() {
+  const { rows } = await pool.query('SELECT id, naam FROM voertuigen');
+  const map = new Map();
+  rows.forEach(v => map.set(v.naam.toLowerCase(), v));
+  return map;
+}
+
+app.get('/api/deliveries', auth, async (req, res) => {
+  const [{ rows }, voertuigenPerNaam] = await Promise.all([
+    pool.query(DELIVERIES_SELECT, [GEPLANDE_STATUSSEN]),
+    haalVoertuigenPerNaamOp(),
+  ]);
+  res.json(rows.map(row => rijNaarLevering(row, voertuigenPerNaam)));
 });
 
-// ---------- Excel-import van de planning ----------
-app.post('/api/import', auth, adminOnly, async (req, res) => {
-  const { fileBase64 } = req.body || {};
-  if (!fileBase64) return res.status(400).json({ error: 'Geen bestand ontvangen' });
+// LET OP: bewust GEEN "levering aanmaken" endpoint meer — deze app is puur
+// voor UITVOERING van boekingen die al op het boekingsplatform bestaan. Een
+// nieuwe reservatie aanmaken kan enkel daar. Om dezelfde reden ook geen
+// "levering verwijderen": een boeking (weg)beheren is een taak van het
+// boekingsplatform, nooit van deze app.
+app.put('/api/deliveries/:id', auth, async (req, res) => {
+  const d = req.body || {};
+  const boekingId = req.params.id;
 
-  let rows;
+  const client = await pool.connect();
   try {
-    const buf = Buffer.from(fileBase64, 'base64');
-    const wb = XLSX.read(buf, { type: 'buffer' });
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    rows = XLSX.utils.sheet_to_json(ws, { raw: false, defval: '' });
+    await client.query('BEGIN');
+
+    const huidigRes = await client.query(
+      `SELECT b.leveringswijze, b.leveringsadres, b.gewenste_datum_start, b.gewenste_datum_einde,
+              k.adres AS klant_adres, k.postcode AS klant_postcode, k.gemeente AS klant_gemeente
+       FROM boekingen b JOIN klanten k ON k.id = b.klant_id WHERE b.id = $1 FOR UPDATE OF b`,
+      [boekingId]
+    );
+    if (huidigRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Boeking niet gevonden' });
+    }
+    const huidig = huidigRes.rows[0];
+
+    // Leverdatum/afhaaldatum: "details van de boeking aanpassen" mag van
+    // Jonas vanuit de app, dus deze schrijven we door naar de boeking zelf
+    // (dezelfde datums die ook op de Planning-pagina van het platform staan).
+    const nieuweDatum = ISODATE_REGEX.test(d.datum || '') ? d.datum : naarDatumString(huidig.gewenste_datum_start);
+    const nieuweAfhaaldatum = ISODATE_REGEX.test(d.afhaaldatum || '') ? d.afhaaldatum : naarDatumString(huidig.gewenste_datum_einde);
+    await client.query(
+      'UPDATE boekingen SET gewenste_datum_start = $1, gewenste_datum_einde = $2, bijgewerkt_op = now() WHERE id = $3',
+      [nieuweDatum, nieuweAfhaaldatum, boekingId]
+    );
+
+    // Leveringsadres: enkel effectief overschrijven als de chauffeur het
+    // echt aangepast heeft (afwijkt van het automatisch berekende adres) —
+    // anders zouden we per ongeluk het klantadres "bevriezen" bij elke
+        // gewone opslag (bv. een checklist-vinkje), terwijl een leeg
+    // leveringsadres net bedoeld is om automatisch mee te veranderen als het
+    // klantadres ooit wijzigt.
+    const huidigBerekend = berekenAdres({ ...huidig });
+    const ingevoerdAdres = (d.adres || '').trim();
+    if (ingevoerdAdres !== huidigBerekend.trim()) {
+      await client.query('UPDATE boekingen SET leveringsadres = $1 WHERE id = $2', [ingevoerdAdres || null, boekingId]);
+    }
+
+    // Status (te-leveren/geplaatst/afgerond) vertaalt zich naar de 2
+    // aparte "voltooid"-vlaggen — dezelfde kolommen die het Dashboard en de
+    // Planning-pagina van het platform al gebruiken voor de groene
+    // "afgerond"-markering.
+    const status = ['te-leveren', 'geplaatst', 'afgerond'].includes(d.status) ? d.status : 'te-leveren';
+    const leveringVoltooid = status === 'geplaatst' || status === 'afgerond';
+    const afhalingVoltooid = status === 'afgerond';
+
+    const plaatsing = d.plaatsing || {};
+    const afhaling = d.afhaling || {};
+    const betaling = d.betaling || {};
+
+    // Tijdslot/afhaaltijd: enkel doorschrijven naar de strikte, sorteerbare
+    // leveringstijd/afhaaltijd-kolommen (dezelfde die het Dashboard gebruikt)
+    // als het echt een geldig UU:MM is — zo kan hier nooit per ongeluk iets
+    // onbruikbaars in die kolom terechtkomen.
+    const leveringstijdWaarde = HHMM_REGEX.test(d.tijdslot || '') ? `${nieuweDatum} ${d.tijdslot}` : null;
+    const afhaaltijdWaarde = HHMM_REGEX.test(d.afhaaltijd || '') ? `${nieuweAfhaaldatum} ${d.afhaaltijd}` : null;
+
+    const voertuigLevering = (d.toegewezenAan && d.toegewezenAan.naam) ? d.toegewezenAan.naam : null;
+    const voertuigAfhaling = (d.toegewezenAanAfhaling && d.toegewezenAanAfhaling.naam) ? d.toegewezenAanAfhaling.naam : null;
+
+    const velden = {
+      voertuig_levering: voertuigLevering,
+      voertuig_afhaling: voertuigAfhaling,
+      volgorde_levering: naarIntOfNull(d.handmatigeVolgordeLevering),
+      volgorde_afhaling: naarIntOfNull(d.handmatigeVolgordeAfhaling),
+      levering_voltooid: leveringVoltooid,
+      afhaling_voltooid: afhalingVoltooid,
+      leveringstijd: leveringstijdWaarde,
+      afhaaltijd: afhaaltijdWaarde,
+      plaatsing_correct: naarBoolOfNull(plaatsing.correctGeplaatst),
+      plaatsing_bevestiging: plaatsing.bevestiging || null,
+      plaatsing_valmatten: naarBoolOfNull(plaatsing.valmatten),
+      plaatsing_verlengkabel: naarBoolOfNull(plaatsing.verlengkabel),
+      plaatsing_aantal_kabels: naarIntOfNull(plaatsing.aantalKabels),
+      plaatsing_aantal_zandzakken: naarIntOfNull(plaatsing.aantalZandzakken),
+      plaatsing_netjes: naarBoolOfNull(plaatsing.netjes),
+      plaatsing_opmerkingen: plaatsing.opmerkingen || null,
+      plaatsing_bevestigd: !!plaatsing.bevestigd,
+      plaatsing_bevestigd_op: plaatsing.bevestigdOp || null,
+      afhaling_valmatten_terug: naarBoolOfNull(afhaling.valmattenTerug),
+      afhaling_kabels_terug: naarBoolOfNull(afhaling.kabelsTerug),
+      afhaling_bevestiging_terug: naarBoolOfNull(afhaling.bevestigingTerug),
+      afhaling_nat_of_vuil: naarBoolOfNull(afhaling.natOfVuil),
+      afhaling_reiniging_nodig: naarBoolOfNull(afhaling.reinigingNodig),
+      afhaling_opmerkingen: afhaling.opmerkingen || null,
+      afhaling_bevestigd: !!afhaling.bevestigd,
+      afhaling_bevestigd_op: afhaling.bevestigdOp || null,
+      afhaling_verzet_aangevraagd: !!afhaling.verzetAangevraagd,
+      afhaling_verzet_naar_datum: ISODATE_REGEX.test(afhaling.verzetNaarDatum || '') ? afhaling.verzetNaarDatum : null,
+      afhaling_verzet_reden: afhaling.verzetReden || null,
+      betaling_ter_plekke_status: betaling.status || null,
+      betaling_ter_plekke_opmerking: betaling.opmerking || null,
+    };
+    const kolommen = Object.keys(velden);
+    const upsert = await client.query(
+      `INSERT INTO leveringen (boeking_id, ${kolommen.join(', ')})
+       VALUES ($1, ${kolommen.map((_, i) => `$${i + 2}`).join(', ')})
+       ON CONFLICT (boeking_id) DO UPDATE SET
+         ${kolommen.map((k) => (k === 'leveringstijd' || k === 'afhaaltijd')
+           ? `${k} = COALESCE(EXCLUDED.${k}, leveringen.${k})`
+           : `${k} = EXCLUDED.${k}`).join(', ')}
+       RETURNING id`,
+      [boekingId, ...kolommen.map((k) => velden[k])]
+    );
+
+    await client.query('COMMIT');
+    res.json({ ok: true, leveringenId: upsert.rows[0].id });
   } catch (e) {
-    return res.status(400).json({ error: 'Kon het Excel-bestand niet lezen. Is het een geldig .xlsx-bestand?' });
+    await client.query('ROLLBACK');
+    console.error('[deliveries] opslaan mislukt:', e);
+    res.status(500).json({ error: 'Opslaan mislukt: ' + e.message });
+  } finally {
+    client.release();
   }
-
-  let imported = 0;
-  let updated = 0;
-  const skipped = [];
-
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
-    const klant = getField(row, 'Customer Name', 'Klant', 'Naam');
-    const adres1 = getField(row, 'Delivery Address 1', 'Adres', 'Address');
-    if (!klant && !adres1) continue; // lege rij, geen fout
-
-    if (!klant) {
-      skipped.push({ rij: i + 2, reden: 'Klantnaam ontbreekt' });
-      continue;
-    }
-
-    const stad = getField(row, 'Delivery Town', 'Gemeente', 'Town');
-    const postcode = getField(row, 'Delivery Postcode', 'Postcode');
-    const adres = [adres1, [postcode, stad].filter(Boolean).join(' ')].filter(Boolean).join(', ');
-    const boekingsnummer = getField(row, 'Booking ID', 'Booking Number', 'Boekingsnummer', 'Booking Nr', 'Order Number', 'Ordernummer', 'Reference', 'Referentie', 'Boeking');
-
-    const d = emptyDeliveryServer();
-    d.klant = klant;
-    d.telefoon = getField(row, 'Mobile', 'Telefoon', 'Tel');
-    d.email = getField(row, 'Email', 'E-mail');
-    d.adres = adres;
-    d.postcode = postcode;
-    d.ondergrond = normalizeOndergrond(getField(row, 'Surface', 'Ondergrond'));
-    if (d.ondergrond === 'Harde ondergrond') d.plaatsing.valmatten = true;
-    d.datum = normalizeDate(getField(row, 'Delivery Date', 'Leverdatum'));
-    d.tijdslot = normalizeTime(getField(row, 'Drop Off', 'Levertijd'));
-    d.afhaaldatum = normalizeDate(getField(row, 'Collection Date', 'Afhaaldatum'));
-    d.afhaaltijd = normalizeTime(getField(row, 'Collection', 'Afhaaltijd'));
-    d.artikelen = getField(row, 'Item', 'Artikelen');
-    d.bedrag = getField(row, 'Balance', 'Bedrag', 'Saldo');
-    if (d.bedrag && parseFloat(d.bedrag.replace(',', '.')) === 0) {
-      d.betaling.status = 'reeds-voldaan';
-    }
-    d.boekingsnummer = boekingsnummer;
-    d.plaatsing.tijdstip = '';
-
-    try {
-      let existing = null;
-      if (boekingsnummer) {
-        const r = await pool.query("SELECT id, data FROM deliveries WHERE data->>'boekingsnummer' = $1 AND data->>'boekingsnummer' <> ''", [boekingsnummer]);
-        if (r.rows.length > 0) existing = r.rows[0];
-      }
-      if (!existing && d.klant && d.datum && d.artikelen) {
-        // Vangnet: geen (herkend) boekingsnummer, of het verschilt van eerdere imports.
-        // Toch dezelfde klant + leverdatum + artikelen? Dan gaan we ervan uit dat het om
-        // dezelfde boeking gaat (bv. andere export/bron met een andere boekingsnummer-opmaak),
-        // om dubbele reservaties te vermijden.
-        const r2 = await pool.query(
-          `SELECT id, data FROM deliveries
-           WHERE lower(trim(data->>'klant')) = lower(trim($1))
-             AND data->>'datum' = $2
-             AND lower(trim(data->>'artikelen')) = lower(trim($3))`,
-          [d.klant, d.datum, d.artikelen]
-        );
-        if (r2.rows.length > 0) existing = r2.rows[0];
-      }
-      if (existing) {
-        // Boeking bestaat al: enkel de planninggegevens bijwerken, checklists/status/toewijzing blijven behouden
-        const merged = {
-          ...existing.data,
-          klant: d.klant, telefoon: d.telefoon, email: d.email, adres: d.adres, postcode: d.postcode,
-          ondergrond: d.ondergrond, datum: d.datum, tijdslot: d.tijdslot, afhaaldatum: d.afhaaldatum,
-          afhaaltijd: d.afhaaltijd, artikelen: d.artikelen, bedrag: d.bedrag,
-          boekingsnummer: d.boekingsnummer || existing.data.boekingsnummer
-        };
-        await pool.query('UPDATE deliveries SET data=$1, updated_at=now() WHERE id=$2', [merged, existing.id]);
-        updated++;
-      } else {
-        await pool.query('INSERT INTO deliveries(id, data, created_by) VALUES ($1,$2,$3)', [d.id, d, req.user.id]);
-        imported++;
-      }
-    } catch (e) {
-      skipped.push({ rij: i + 2, reden: 'Kon niet opgeslagen worden' });
-    }
-  }
-
-  res.json({ imported, updated, skipped });
 });
 
-// ---------- Foto's ----------
+// ---------- Foto's (plaatsing/afhaling) ----------
 app.get('/api/deliveries/:id/photos', auth, async (req, res) => {
   const r = await pool.query(
-    'SELECT id, naam, data_url AS "dataUrl" FROM photos WHERE delivery_id=$1 ORDER BY id',
+    `SELECT lf.id, lf.naam, lf.data_url AS "dataUrl" FROM leveringen_fotos lf
+     JOIN leveringen l ON l.id = lf.leveringen_id
+     WHERE l.boeking_id = $1 ORDER BY lf.id`,
     [req.params.id]
   );
   res.json(r.rows);
 });
 app.post('/api/deliveries/:id/photos', auth, async (req, res) => {
-  const { naam, dataUrl } = req.body || {};
-  const ins = await pool.query(
-    'INSERT INTO photos(delivery_id, naam, data_url) VALUES ($1,$2,$3) RETURNING id, naam, data_url AS "dataUrl"',
-    [req.params.id, naam || '', dataUrl]
-  );
-  const photo = ins.rows[0];
-  res.json(photo);
+  const { naam, dataUrl, fase } = req.body || {};
+  const gekozenFase = fase === 'afhaling' ? 'afhaling' : 'plaatsing';
+  try {
+    // Bijna altijd bestaat de leveringen-rij al (aangemaakt bij de eerste
+    // opslag van de checklist), maar voor de zekerheid: als die rij er nog
+    // niet is (bv. meteen een foto nemen vóór iets anders opgeslagen werd),
+    // maken we ze hier leeg aan.
+    const upsertLevering = await pool.query(
+      `INSERT INTO leveringen (boeking_id) VALUES ($1)
+       ON CONFLICT (boeking_id) DO UPDATE SET boeking_id = EXCLUDED.boeking_id
+       RETURNING id`,
+      [req.params.id]
+    );
+    const leveringenId = upsertLevering.rows[0].id;
+    const ins = await pool.query(
+      'INSERT INTO leveringen_fotos(leveringen_id, fase, naam, data_url) VALUES ($1,$2,$3,$4) RETURNING id, naam, data_url AS "dataUrl"',
+      [leveringenId, gekozenFase, naam || '', dataUrl]
+    );
+    const photo = ins.rows[0];
+    res.json(photo);
 
-  // Best-effort kopie naar Dropbox, ná het antwoord — mag de app nooit vertragen of blokkeren
-  (async () => {
-    try {
-      const delRes = await pool.query('SELECT data FROM deliveries WHERE id=$1', [req.params.id]);
-      if (delRes.rows.length === 0) return;
-      const delivery = delRes.rows[0].data;
-      const base64 = (dataUrl || '').split(',')[1];
-      if (!base64) return;
-      const buffer = Buffer.from(base64, 'base64');
-      const folder = sanitizeForPath(delivery.datum || 'ongedateerd') + '_' + sanitizeForPath(delivery.klant);
-      const dropboxPath = '/' + folder + '/foto-' + photo.id + '.jpg';
-      await uploadToDropbox(dropboxPath, buffer);
-    } catch (e) {
-      console.error('Dropbox-kopie mislukt:', e.message);
-    }
-  })();
+    // Best-effort kopie naar Dropbox, ná het antwoord — mag de app nooit vertragen of blokkeren
+    (async () => {
+      try {
+        const delRes = await pool.query(
+          `SELECT k.naam AS klant, b.gewenste_datum_start AS datum
+           FROM boekingen b JOIN klanten k ON k.id = b.klant_id WHERE b.id = $1`,
+          [req.params.id]
+        );
+        if (delRes.rows.length === 0) return;
+        const delivery = delRes.rows[0];
+        const base64 = (dataUrl || '').split(',')[1];
+        if (!base64) return;
+        const buffer = Buffer.from(base64, 'base64');
+        const folder = sanitizeForPath(naarDatumString(delivery.datum) || 'ongedateerd') + '_' + sanitizeForPath(delivery.klant);
+        const dropboxPath = '/' + folder + '/foto-' + photo.id + '.jpg';
+        await uploadToDropbox(dropboxPath, buffer);
+      } catch (e) {
+        console.error('Dropbox-kopie mislukt:', e.message);
+      }
+    })();
+  } catch (e) {
+    res.status(500).json({ error: 'Foto opslaan mislukt: ' + e.message });
+  }
 });
 app.delete('/api/deliveries/:deliveryId/photos/:photoId', auth, async (req, res) => {
-  await pool.query('DELETE FROM photos WHERE id=$1 AND delivery_id=$2', [req.params.photoId, req.params.deliveryId]);
+  await pool.query(
+    `DELETE FROM leveringen_fotos lf USING leveringen l
+     WHERE lf.id = $1 AND lf.leveringen_id = l.id AND l.boeking_id = $2`,
+    [req.params.photoId, req.params.deliveryId]
+  );
   res.json({ ok: true });
 });
 
@@ -530,7 +618,7 @@ app.get('/api/locations', auth, adminOnly, async (req, res) => {
   res.json(r.rows);
 });
 
-// ---------- Instellingen (bv. Google review-link) ----------
+// ---------- Instellingen (bv. Google review-link, betaal-QR) ----------
 app.get('/api/settings', auth, async (req, res) => {
   const r = await pool.query('SELECT key, value FROM app_settings');
   const settings = {};
@@ -551,14 +639,17 @@ app.put('/api/settings', auth, adminOnly, async (req, res) => {
 
 app.post('/api/deliveries/:id/send-review-email', auth, async (req, res) => {
   try {
-    const r = await pool.query('SELECT data FROM deliveries WHERE id=$1', [req.params.id]);
+    const r = await pool.query(
+      `SELECT k.naam AS klant, k.email FROM boekingen b JOIN klanten k ON k.id = b.klant_id WHERE b.id = $1`,
+      [req.params.id]
+    );
     if (r.rows.length === 0) return res.status(404).json({ error: 'Levering niet gevonden' });
-    const d = r.rows[0].data;
+    const d = r.rows[0];
     if (!d.email) return res.status(400).json({ error: 'Geen e-mailadres bekend voor deze klant' });
 
     const settingsRes = await pool.query("SELECT value FROM app_settings WHERE key='googleReviewUrl'");
     const reviewUrl = settingsRes.rows[0] ? settingsRes.rows[0].value : '';
-    if (!reviewUrl) return res.status(400).json({ error: 'Stel eerst een Google review-link in bij Team → Instellingen' });
+    if (!reviewUrl) return res.status(400).json({ error: 'Stel eerst een Google review-link in bij Instellingen' });
 
     const klant = escapeHtmlServer(d.klant);
     const html = `<p>Hallo ${klant},</p>
@@ -595,123 +686,171 @@ app.post('/api/push/unsubscribe', auth, async (req, res) => {
   res.json({ ok: true });
 });
 
-// ---------- Voertuigteams ----------
+// ============================================================
+// VOERTUIGEN & BEMANNING
+// ============================================================
+// Voertuigen zelf ("Belair Camionette", "Linirent bus", ...) worden enkel nog
+// op het boekingsplatform beheerd (Instellingen -> Voertuigen daar) — hier
+// enkel uitlezen, nooit aanmaken/hernoemen/verwijderen vanuit de app.
+//
+// De WIE-zit-in-welk-voertuig-vandaag ("bemanning") is wél hier volledig
+// herwerkt volgens Jonas' vraag: per dag, per richting (levering/afhaling)
+// apart, ten allen tijde aanpasbaar, en elke nieuwe dag standaard leeg (geen
+// automatische overname van de vorige dag) — zie voertuig_bemanning
+// (migratie 022 op het platform).
+
+function vandaagIso() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+// Kort overzicht van de voertuigen, telkens met de bemanning van VANDAAG voor
+// de levering-fase als "leden" — dit is bewust een eenvoudige, snelle
+// momentopname voor weergavedoeleinden (samenvattingsregels, kaartkleuren,
+// het "naar wie versturen"-lijstje bij Melding versturen). De echte,
+// dag-/fase-specifieke bewerking van de bemanning gebeurt via
+// /api/voertuig-bemanning en /api/mijn-voertuig hieronder.
+app.get('/api/teams', auth, async (req, res) => {
+  const [voertuigenRes, bemanningRes] = await Promise.all([
+    pool.query('SELECT id, naam FROM voertuigen ORDER BY naam'),
+    pool.query(
+      `SELECT voertuig_id, gebruiker_id AS id, gebruiker_naam AS naam
+       FROM voertuig_bemanning WHERE datum = $1 AND fase = 'levering'`,
+      [vandaagIso()]
+    ),
+  ]);
+  const ledenPerVoertuig = new Map();
+  bemanningRes.rows.forEach(r => {
+    if (!ledenPerVoertuig.has(r.voertuig_id)) ledenPerVoertuig.set(r.voertuig_id, []);
+    ledenPerVoertuig.get(r.voertuig_id).push({ id: r.id, naam: r.naam });
+  });
+  res.json(voertuigenRes.rows.map(v => ({ id: v.id, naam: v.naam, leden: ledenPerVoertuig.get(v.id) || [] })));
+});
+
+// Voertuig(en) van de ingelogde gebruiker voor VANDAAG, per fase — gebruikt
+// om her en der (bv. "jouw voertuig"-markering) te tonen of iets voor jou is.
 app.get('/api/my-teams', auth, async (req, res) => {
   const r = await pool.query(
-    `SELECT t.id, t.naam FROM teams t JOIN team_members tm ON tm.team_id = t.id WHERE tm.user_id = $1`,
-    [req.user.id]
+    `SELECT vb.voertuig_id AS id, v.naam, vb.fase
+     FROM voertuig_bemanning vb JOIN voertuigen v ON v.id = vb.voertuig_id
+     WHERE vb.gebruiker_id = $1 AND vb.datum = $2`,
+    [req.user.id, vandaagIso()]
   );
   res.json(r.rows);
 });
-app.put('/api/my-team', auth, async (req, res) => {
-  const { teamId } = req.body || {};
-  await pool.query('DELETE FROM team_members WHERE user_id=$1', [req.user.id]);
-  if (teamId) {
-    await pool.query('INSERT INTO team_members(team_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [teamId, req.user.id]);
-  }
-  res.json({ ok: true });
-});
 
-app.get('/api/teams', auth, async (req, res) => {
-  const teamsRes = await pool.query('SELECT id, naam FROM teams ORDER BY naam');
-  const membersRes = await pool.query(
-    `SELECT tm.team_id, u.id, u.naam FROM team_members tm JOIN users u ON u.id = tm.user_id`
+// Zelf je voertuig kiezen voor een gekozen dag (standaard vandaag) — apart
+// voor levering en afhaling, want Jonas wil dat een crewlid voor de levering
+// in een ander voertuig kan zitten dan voor de afhaling, op dezelfde dag.
+app.get('/api/mijn-voertuig', auth, async (req, res) => {
+  const datum = ISODATE_REGEX.test(req.query.datum || '') ? req.query.datum : vandaagIso();
+  const r = await pool.query(
+    `SELECT voertuig_id, fase FROM voertuig_bemanning WHERE gebruiker_id = $1 AND datum = $2`,
+    [req.user.id, datum]
   );
-  const byTeam = {};
-  membersRes.rows.forEach(r => {
-    if (!byTeam[r.team_id]) byTeam[r.team_id] = [];
-    byTeam[r.team_id].push({ id: r.id, naam: r.naam });
-  });
-  res.json(teamsRes.rows.map(t => ({ id: t.id, naam: t.naam, leden: byTeam[t.id] || [] })));
+  const result = { datum, levering: null, afhaling: null };
+  r.rows.forEach(row => { result[row.fase] = row.voertuig_id; });
+  res.json(result);
 });
-app.post('/api/teams', auth, adminOnly, async (req, res) => {
-  const { naam, memberIds } = req.body || {};
-  if (!naam) return res.status(400).json({ error: 'Naam is verplicht' });
-  const ins = await pool.query('INSERT INTO teams(naam) VALUES ($1) RETURNING id', [naam]);
-  const teamId = ins.rows[0].id;
-  for (const uid of (memberIds || [])) {
-    await pool.query('INSERT INTO team_members(team_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [teamId, uid]);
+app.put('/api/mijn-voertuig', auth, async (req, res) => {
+  const { datum, fase, voertuigId } = req.body || {};
+  if (!['levering', 'afhaling'].includes(fase)) {
+    return res.status(400).json({ error: 'fase moet "levering" of "afhaling" zijn' });
   }
-  res.json({ ok: true, id: teamId });
-});
-app.put('/api/teams/:id', auth, adminOnly, async (req, res) => {
-  const { naam, memberIds } = req.body || {};
-  if (naam) await pool.query('UPDATE teams SET naam=$1 WHERE id=$2', [naam, req.params.id]);
-  if (Array.isArray(memberIds)) {
-    await pool.query('DELETE FROM team_members WHERE team_id=$1', [req.params.id]);
-    for (const uid of memberIds) {
-      await pool.query('INSERT INTO team_members(team_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [req.params.id, uid]);
-    }
+  const gekozenDatum = ISODATE_REGEX.test(datum || '') ? datum : vandaagIso();
+  if (!voertuigId) {
+    await pool.query(
+      'DELETE FROM voertuig_bemanning WHERE gebruiker_id=$1 AND datum=$2 AND fase=$3',
+      [req.user.id, gekozenDatum, fase]
+    );
+    return res.json({ ok: true });
   }
-  res.json({ ok: true });
-});
-app.delete('/api/teams/:id', auth, adminOnly, async (req, res) => {
-  await pool.query('DELETE FROM teams WHERE id=$1', [req.params.id]);
-  res.json({ ok: true });
+  try {
+    await pool.query(
+      `INSERT INTO voertuig_bemanning (voertuig_id, gebruiker_id, gebruiker_naam, datum, fase)
+       VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (gebruiker_id, datum, fase) DO UPDATE SET voertuig_id = EXCLUDED.voertuig_id, gebruiker_naam = EXCLUDED.gebruiker_naam`,
+      [voertuigId, req.user.id, req.user.naam, gekozenDatum, fase]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: 'Kon voertuig niet instellen: ' + e.message });
+  }
 });
 
-// ---------- Materiaal-databank (standaardinfo per product, bv. voor laadlijsten) ----------
+// Admin-overzicht/-bewerking: "wie zit vandaag (of een gekozen dag) in welk
+// voertuig", apart per fase — dit is het scherm achter "Huidige bezetting".
+app.get('/api/voertuig-bemanning', auth, adminOnly, async (req, res) => {
+  const datum = ISODATE_REGEX.test(req.query.datum || '') ? req.query.datum : vandaagIso();
+  const fase = req.query.fase === 'afhaling' ? 'afhaling' : 'levering';
+  const r = await pool.query(
+    'SELECT voertuig_id, gebruiker_id AS id, gebruiker_naam AS naam FROM voertuig_bemanning WHERE datum=$1 AND fase=$2',
+    [datum, fase]
+  );
+  const perVoertuig = {};
+  r.rows.forEach(row => {
+    if (!perVoertuig[row.voertuig_id]) perVoertuig[row.voertuig_id] = [];
+    perVoertuig[row.voertuig_id].push({ id: row.id, naam: row.naam });
+  });
+  res.json({ datum, fase, bemanning: perVoertuig });
+});
+// Vervangt in één keer de volledige bemanning van één voertuig, voor één dag
+// + fase — verwijdert de gekozen gebruikers ook automatisch uit een ANDER
+// voertuig voor diezelfde dag/fase (één crewlid kan er maar in één zitten).
+app.put('/api/voertuig-bemanning', auth, adminOnly, async (req, res) => {
+  const { voertuigId, datum, fase, gebruikerIds } = req.body || {};
+  if (!voertuigId || !['levering', 'afhaling'].includes(fase) || !Array.isArray(gebruikerIds)) {
+    return res.status(400).json({ error: 'voertuigId, fase (levering/afhaling) en gebruikerIds (lijst) zijn verplicht' });
+  }
+  const gekozenDatum = ISODATE_REGEX.test(datum || '') ? datum : vandaagIso();
+  const ids = gebruikerIds.map(id => parseInt(id, 10)).filter(Number.isFinite);
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    // Weg met: (a) de huidige bemanning van dit voertuig voor deze dag/fase
+    // (wordt zo dadelijk vervangen), en (b) elke bestaande koppeling van de
+    // NIEUW gekozen gebruikers met een ANDER voertuig voor diezelfde dag/fase.
+    await client.query(
+      `DELETE FROM voertuig_bemanning
+       WHERE datum = $1 AND fase = $2 AND (voertuig_id = $3 OR gebruiker_id = ANY($4::int[]))`,
+      [gekozenDatum, fase, voertuigId, ids]
+    );
+    if (ids.length) {
+      await client.query(
+        `INSERT INTO voertuig_bemanning (voertuig_id, gebruiker_id, gebruiker_naam, datum, fase)
+         SELECT $1, u.id, u.naam, $2, $3 FROM users u WHERE u.id = ANY($4::int[])`,
+        [voertuigId, gekozenDatum, fase, ids]
+      );
+    }
+    await client.query('COMMIT');
+    res.json({ ok: true });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: 'Bemanning bijwerken mislukt: ' + e.message });
+  } finally {
+    client.release();
+  }
+});
+
+// ---------- Materiaal-info per product — enkel uitlezen (platform beheert dit) ----------
+// Veldnamen blijven dezelfde als voorheen zodat de bestaande laadlijst-logica
+// in de frontend ongewijzigd kan blijven; niet elk veld heeft een tegenhanger
+// op het platform (zie kolomcommentaar) — die komen dus leeg/null terug.
 app.get('/api/producten', auth, async (req, res) => {
   const r = await pool.query(`
-    SELECT naam, opmerking, motor_type AS "motorType", aantal_motors AS "aantalMotors",
-      verlengkabel_standaard AS "verlengkabelStandaard", verlengkabel_dubbel AS "verlengkabelDubbel",
-      pinnen, zandzakken, valmatten, overige
+    SELECT naam,
+           NULL::text AS opmerking,
+           motor_type AS "motorType",
+           NULL::int AS "aantalMotors",
+           NULL::int AS "verlengkabelStandaard",
+           NULL::int AS "verlengkabelDubbel",
+           aantal_piketten AS pinnen,
+           aantal_zandzakken AS zandzakken,
+           aantal_valmatten AS valmatten,
+           NULL::text AS overige
     FROM producten ORDER BY naam
   `);
   res.json(r.rows);
-});
-app.post('/api/producten', auth, adminOnly, async (req, res) => {
-  const { naam, opmerking, motorType, aantalMotors, verlengkabelStandaard, verlengkabelDubbel, pinnen, zandzakken, valmatten, overige } = req.body || {};
-  if (!naam) return res.status(400).json({ error: 'Naam is verplicht' });
-  const n = v => (v === '' || v === undefined || v === null) ? null : parseInt(v, 10);
-  await pool.query(
-    `INSERT INTO producten(naam, opmerking, motor_type, aantal_motors, verlengkabel_standaard, verlengkabel_dubbel, pinnen, zandzakken, valmatten, overige, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now())
-     ON CONFLICT (naam) DO UPDATE SET opmerking=$2, motor_type=$3, aantal_motors=$4, verlengkabel_standaard=$5, verlengkabel_dubbel=$6, pinnen=$7, zandzakken=$8, valmatten=$9, overige=$10, updated_at=now()`,
-    [naam.trim(), opmerking || '', motorType || null, n(aantalMotors), n(verlengkabelStandaard), n(verlengkabelDubbel), n(pinnen), n(zandzakken), n(valmatten), overige || '']
-  );
-  res.json({ ok: true });
-});
-app.delete('/api/producten', auth, adminOnly, async (req, res) => {
-  const { naam } = req.body || {};
-  if (naam) await pool.query('DELETE FROM producten WHERE naam=$1', [naam]);
-  res.json({ ok: true });
-});
-app.post('/api/producten/import', auth, adminOnly, async (req, res) => {
-  const { fileBase64 } = req.body || {};
-  if (!fileBase64) return res.status(400).json({ error: 'Geen bestand ontvangen' });
-  let rows;
-  try {
-    const buf = Buffer.from(fileBase64, 'base64');
-    const wb = XLSX.read(buf, { type: 'buffer' });
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    rows = XLSX.utils.sheet_to_json(ws, { raw: true, defval: '', header: 1 });
-  } catch (e) {
-    return res.status(400).json({ error: 'Kon het Excel-bestand niet lezen.' });
-  }
-  const n = v => (v === '' || v === undefined || v === null) ? null : parseInt(v, 10);
-  let imported = 0;
-  const skipped = [];
-  // Zoek de headerrij (bevat 'Motor Type' in een van de kolommen)
-  let headerIdx = rows.findIndex(r => r.some(c => String(c).toLowerCase().includes('motor type')));
-  if (headerIdx === -1) headerIdx = 0;
-  for (let i = headerIdx + 1; i < rows.length; i++) {
-    const row = rows[i];
-    const naam = row[0] ? String(row[0]).trim() : '';
-    if (!naam) continue;
-    try {
-      await pool.query(
-        `INSERT INTO producten(naam, motor_type, aantal_motors, verlengkabel_standaard, verlengkabel_dubbel, pinnen, zandzakken, valmatten, overige, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,now())
-         ON CONFLICT (naam) DO UPDATE SET motor_type=$2, aantal_motors=$3, verlengkabel_standaard=$4, verlengkabel_dubbel=$5, pinnen=$6, zandzakken=$7, valmatten=$8, overige=$9, updated_at=now()`,
-        [naam, row[1] ? String(row[1]).trim() : null, n(row[2]), n(row[3]), n(row[4]), n(row[5]), n(row[6]), n(row[7]), row[8] ? String(row[8]).trim() : '']
-      );
-      imported++;
-    } catch (e) {
-      skipped.push({ rij: i + 1, reden: 'Kon niet opgeslagen worden' });
-    }
-  }
-  res.json({ imported, skipped });
 });
 
 // ---------- Handmatig een melding versturen ----------
@@ -724,14 +863,17 @@ app.post('/api/notify', auth, adminOnly, async (req, res) => {
 
   let userIds = [];
   if (teamId) {
-    const r = await pool.query('SELECT user_id FROM team_members WHERE team_id=$1', [teamId]);
-    userIds = r.rows.map(row => row.user_id);
+    const r = await pool.query(
+      `SELECT DISTINCT gebruiker_id FROM voertuig_bemanning WHERE voertuig_id=$1 AND datum=$2`,
+      [teamId, vandaagIso()]
+    );
+    userIds = r.rows.map(row => row.gebruiker_id);
   } else if (userId) {
     userIds = [userId];
   } else {
-    return res.status(400).json({ error: 'Kies een team of een teamlid' });
+    return res.status(400).json({ error: 'Kies een voertuig of een teamlid' });
   }
-  if (userIds.length === 0) return res.status(400).json({ error: 'Dit team heeft geen leden' });
+  if (userIds.length === 0) return res.status(400).json({ error: 'Voor dit voertuig is vandaag niemand ingedeeld' });
 
   const subsRes = await pool.query(
     `SELECT id, endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ANY($1::int[])`,
@@ -763,19 +905,30 @@ app.post('/api/sync-website', auth, adminOnly, async (req, res) => {
   }
   const fullSync = !!(req.body && req.body.fullSync);
 
-  const r = await pool.query(`SELECT data FROM deliveries`);
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - 2);
   const cutoffStr = cutoff.toISOString().slice(0, 10);
 
-  const bookings = r.rows
-    .map(row => row.data)
-    .filter(d => d.datum && d.datum >= cutoffStr && d.artikelen)
+  const { rows } = await pool.query(
+    `SELECT b.id, b.gewenste_datum_start, b.gewenste_datum_einde, bp.producten_namen
+     FROM boekingen b
+     LEFT JOIN (
+       SELECT bp.boeking_id,
+              string_agg(p.naam || CASE WHEN bp.aantal > 1 THEN ' (x' || bp.aantal || ')' ELSE '' END, ', ' ORDER BY p.naam) AS producten_namen
+       FROM boeking_producten bp JOIN producten p ON p.id = bp.product_id
+       GROUP BY bp.boeking_id
+     ) bp ON bp.boeking_id = b.id
+     WHERE b.status = ANY($1) AND b.gewenste_datum_einde >= $2`,
+    [GEPLANDE_STATUSSEN, cutoffStr]
+  );
+
+  const bookings = rows
+    .filter(d => d.producten_namen)
     .map(d => ({
-      booking_id: d.boekingsnummer || d.id,
-      item: d.artikelen,
-      delivery_date: d.datum,
-      collection_date: d.afhaaldatum || d.datum
+      booking_id: d.id,
+      item: d.producten_namen,
+      delivery_date: naarDatumString(d.gewenste_datum_start),
+      collection_date: naarDatumString(d.gewenste_datum_einde) || naarDatumString(d.gewenste_datum_start),
     }));
 
   try {
@@ -794,117 +947,13 @@ app.post('/api/sync-website', auth, adminOnly, async (req, res) => {
   }
 });
 
-// ---------- Koppeling met het boekingsplatform ----------
-// Ontvangt geplande boekingen vanuit het boekingsplatform (manueel getriggerd
-// aan die kant, net als de website-sync hierboven) en zet ze om in/bij
-// leveringen. Beveiligd met een gedeelde sleutel i.p.v. een gebruikers-login,
-// want dit is server-naar-server verkeer, geen ingelogde gebruiker.
-app.post('/api/sync/boekingsplatform', async (req, res) => {
-  const sleutel = process.env.SYNC_SECRET_BOEKINGSPLATFORM;
-  if (!sleutel) {
-    return res.status(501).json({ error: 'Koppeling met het boekingsplatform is nog niet geconfigureerd (SYNC_SECRET_BOEKINGSPLATFORM ontbreekt bij Render).' });
-  }
-  if (req.headers['x-belair-sync-key'] !== sleutel) {
-    return res.status(401).json({ error: 'Ongeldige sleutel' });
-  }
-
-  const boekingen = Array.isArray(req.body && req.body.boekingen) ? req.body.boekingen : [];
-  const teamsRes = await pool.query('SELECT id, naam FROM teams');
-  const teams = teamsRes.rows;
-  const vindTeam = (naam) => naam && teams.find(t => t.naam.trim().toLowerCase() === String(naam).trim().toLowerCase());
-
-  let aangemaakt = 0;
-  let bijgewerkt = 0;
-  const onherkendeVoertuigen = new Set();
-  const fouten = [];
-
-  for (const b of boekingen) {
-    if (!b || !b.boekingsnummer) { fouten.push('Boeking zonder boekingsnummer overgeslagen'); continue; }
-    try {
-      // Levering en afhaling van dezelfde boeking kunnen elk hun eigen
-      // voertuig/team hebben (bv. geleverd met de camionette, opgehaald met
-      // de bus) — dus apart opzoeken, nooit hetzelfde team voor beide zetten.
-      const teamLevering = vindTeam(b.voertuig);
-      const teamAfhaling = vindTeam(b.voertuigAfhaling);
-      if (b.voertuig && !teamLevering) onherkendeVoertuigen.add(b.voertuig);
-      if (b.voertuigAfhaling && !teamAfhaling) onherkendeVoertuigen.add(b.voertuigAfhaling);
-
-      const r = await pool.query(
-        "SELECT id, data FROM deliveries WHERE data->>'boekingsnummer' = $1 AND data->>'boekingsnummer' <> ''",
-        [b.boekingsnummer]
-      );
-
-      if (r.rows.length > 0) {
-        // Bestaande levering: enkel de planninggegevens overschrijven vanuit het
-        // boekingsplatform. Checklists, foto's en status blijven onaangeroerd —
-        // een sync mag nooit werk van de plaatsers wissen. Voertuig en
-        // routevolgorde komen sinds de Planning-pagina wél altijd mee vanuit het
-        // boekingsplatform ZODRA die daar een waarde heeft (Planning is dan de
-        // "master"); stuurt het boekingsplatform niets door voor dat veld (nog
-        // niet ingepland), dan blijft een eventuele bestaande toewijzing/volgorde
-        // — al dan niet rechtstreeks in de app gezet — gewoon behouden.
-        const bestaand = r.rows[0];
-        const nieuw = {
-          ...bestaand.data,
-          klant: b.klant || '', telefoon: b.telefoon || '', email: b.email || '',
-          adres: b.adres || '', datum: b.datum || '', tijdslot: b.tijdslot || '',
-          afhaaldatum: b.afhaaldatum || '', afhaaltijd: b.afhaaltijd || '',
-          artikelen: b.artikelen || '', bedrag: b.bedrag != null ? String(b.bedrag) : '',
-          toegewezenAan: teamLevering ? { type: 'team', id: teamLevering.id, naam: teamLevering.naam } : bestaand.data.toegewezenAan,
-          toegewezenAanAfhaling: teamAfhaling ? { type: 'team', id: teamAfhaling.id, naam: teamAfhaling.naam } : bestaand.data.toegewezenAanAfhaling,
-          handmatigeVolgordeLevering: b.volgordeLevering != null ? b.volgordeLevering : bestaand.data.handmatigeVolgordeLevering,
-          handmatigeVolgordeAfhaling: b.volgordeAfhaling != null ? b.volgordeAfhaling : bestaand.data.handmatigeVolgordeAfhaling,
-        };
-        await pool.query('UPDATE deliveries SET data=$1, updated_at=now() WHERE id=$2', [nieuw, bestaand.id]);
-        bijgewerkt++;
-      } else {
-        const d = emptyDeliveryServer();
-        d.klant = b.klant || ''; d.telefoon = b.telefoon || ''; d.email = b.email || '';
-        d.adres = b.adres || ''; d.datum = b.datum || ''; d.tijdslot = b.tijdslot || '';
-        d.afhaaldatum = b.afhaaldatum || ''; d.afhaaltijd = b.afhaaltijd || '';
-        d.artikelen = b.artikelen || ''; d.bedrag = b.bedrag != null ? String(b.bedrag) : '';
-        d.boekingsnummer = b.boekingsnummer;
-        d.toegewezenAan = teamLevering ? { type: 'team', id: teamLevering.id, naam: teamLevering.naam } : null;
-        d.toegewezenAanAfhaling = teamAfhaling ? { type: 'team', id: teamAfhaling.id, naam: teamAfhaling.naam } : null;
-        d.handmatigeVolgordeLevering = b.volgordeLevering != null ? b.volgordeLevering : null;
-        d.handmatigeVolgordeAfhaling = b.volgordeAfhaling != null ? b.volgordeAfhaling : null;
-        await pool.query('INSERT INTO deliveries(id, data) VALUES ($1,$2)', [d.id, d]);
-        aangemaakt++;
-      }
-    } catch (e) {
-      fouten.push(`${b.boekingsnummer}: ${e.message}`);
-    }
-  }
-
-  res.json({ aangemaakt, bijgewerkt, onherkendeVoertuigen: [...onherkendeVoertuigen], fouten });
-});
-
-// Geeft de huidige status (en toewijzing) terug van elke gesynchroniseerde
-// levering — het boekingsplatform roept dit na elke "Nu synchroniseren" op om
-// de "voltooid"-markering op zijn eigen Dashboard bij te werken zodra de crew
-// dit in de app aanvinkt (status 'geplaatst' = levering gebeurd, 'afgerond' =
-// ook al opgehaald). Enkel leesbaar met dezelfde sleutel als de sync zelf.
-app.get('/api/sync/boekingsplatform/status', async (req, res) => {
-  const sleutel = process.env.SYNC_SECRET_BOEKINGSPLATFORM;
-  if (!sleutel) {
-    return res.status(501).json({ error: 'Koppeling met het boekingsplatform is nog niet geconfigureerd (SYNC_SECRET_BOEKINGSPLATFORM ontbreekt bij Render).' });
-  }
-  if (req.headers['x-belair-sync-key'] !== sleutel) {
-    return res.status(401).json({ error: 'Ongeldige sleutel' });
-  }
-  const r = await pool.query(
-    "SELECT data->>'boekingsnummer' AS boekingsnummer, data->>'status' AS status FROM deliveries WHERE data->>'boekingsnummer' <> ''"
-  );
-  res.json({ leveringen: r.rows });
-});
-
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 const PORT = process.env.PORT || 3000;
 initDb()
-  .then(() => app.listen(PORT, () => console.log('Belair-Fun API draait op poort ' + PORT)))
+  .then(() => app.listen(PORT, () => console.log('Belair-Fun App draait op poort ' + PORT)))
   .catch(err => {
     console.error('Kon database niet initialiseren:', err);
     process.exit(1);
