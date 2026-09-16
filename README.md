@@ -275,12 +275,16 @@ de crew ze hier niet manueel moet overtypen. De richting is dus omgekeerd
 t.o.v. de WordPress-koppeling hierboven: hier is de Belair-Fun-app de
 **ontvanger**, niet de verzender.
 
-### 1. Sleutel instellen bij Render
+### 1. Sleutel + adres instellen bij Render
 Ga naar de Web Service van de Belair-Fun app → **Environment** en voeg toe:
 - `SYNC_SECRET_BOEKINGSPLATFORM` = een lange, willekeurige tekst (verzin er
   zelf een — het is enkel een gedeeld geheim, geen bestaand wachtwoord)
+- `BOEKINGSPLATFORM_URL` = het adres van het boekingsplatform zelf (bv.
+  `https://belair-boekingsplatform.onrender.com`) — nodig voor de live
+  terugkoppeling van de status (zie verder); laat leeg als je enkel de
+  manuele "Nu synchroniseren"-knop wil gebruiken.
 
-Vul exact dezelfde waarde in bij het boekingsplatform zelf, bij
+Vul exact dezelfde sleutel-waarde in bij het boekingsplatform zelf, bij
 **Instellingen → Koppeling met de leveringen-app** (`LEVERINGEN_APP_SYNC_SECRET`
 in diens omgevingsvariabelen), samen met het adres van déze app
 (`LEVERINGEN_APP_URL`, bv. `https://belair-fun.onrender.com`).
@@ -290,18 +294,48 @@ Gebeurt volledig vanuit het boekingsplatform (knop **"🔄 Nu synchroniseren"**
 bij Instellingen daar) — hier hoef je niets te doen. Net als bij de
 WordPress-koppeling: enkel wanneer daarop gedrukt wordt, niets automatisch.
 
-### Voertuig-toewijzing
-Wijst het boekingsplatform al een voertuig toe aan een boeking, dan wordt dat
-hier automatisch gekoppeld aan het **team** met exact dezelfde naam (Team-tabblad,
-enkel voor administrators). Komt een naam niet overeen, dan blijft de levering
-gewoon aangemaakt/bijgewerkt — enkel zonder ploeg-toewijzing — en toont het
-boekingsplatform na de sync welke naam niet herkend werd, zodat je de teamnaam
-kan aanpassen of de naam aan boekingsplatform-kant kan laten corrigeren.
+### Voertuig-toewijzing en routevolgorde (Planning-pagina)
+Het boekingsplatform heeft een **Planning-pagina** waar per dag een voertuig
+en een routevolgorde (▲/▼) ingesteld kunnen worden per levering/afhaling.
+Wijst het boekingsplatform daar een voertuig toe, dan wordt dat hier
+automatisch gekoppeld aan het **team** met exact dezelfde naam (Team-tabblad,
+enkel voor administrators) — en zet het meteen ook `handmatigeVolgordeLevering`/
+`handmatigeVolgordeAfhaling` (dezelfde velden die de bestaande handmatige
+volgorde-functie hier al gebruikt om de lijst van een chauffeur te sorteren).
+Levering en afhaling van dezelfde boeking krijgen elk hun eigen voertuig/team
+en volgorde. Komt een voertuignaam niet overeen met een team hier, dan blijft
+de levering gewoon aangemaakt/bijgewerkt — enkel zonder ploeg-toewijzing voor
+dat stuk — en toont het boekingsplatform na de sync welke naam niet herkend
+werd.
+
+Belangrijk: **zodra Planning voor een levering/afhaling een voertuig of
+volgorde instelt, overschrijft een volgende "Nu synchroniseren" dat hier ook
+telkens opnieuw** (Planning is dus de "master" zodra ze gebruikt wordt) — is
+er op het boekingsplatform nog niets ingesteld voor een bepaalde boeking, dan
+blijft een eventuele bestaande toewijzing hier (rechtstreeks in de app gezet)
+gewoon staan.
+
+### Status komt terug naar het Dashboard — live, zonder knop
+Zodra een chauffeur hier een levering markeert als geleverd (`geplaatst`) of
+ook al opgehaald (`afgerond`), stuurt deze app dat **onmiddellijk** zelf door
+naar `POST {BOEKINGSPLATFORM_URL}/api/sync/leveringen-app/status-update`
+(zelfde gedeelde sleutel als hierboven) — het boekingsplatform zet daarmee
+meteen de "voltooid"-markering op zijn eigen Dashboard, zonder dat daar iemand
+op een knop moet drukken. Vereist dat `BOEKINGSPLATFORM_URL` hier ingesteld
+staat (zie `.env.example`); staat die leeg, dan gebeurt deze live stap gewoon
+niet (geen foutmelding voor de chauffeur — die actie zelf blijft altijd werken).
+
+Als terugvaloptie (bv. bij een tijdelijke netwerkhik, of voor leveringen van
+vóór deze live-koppeling bestond) haalt het boekingsplatform bij elke "Nu
+synchroniseren" ook nog eens de huidige status van alle gesynchroniseerde
+leveringen op (`GET /api/sync/boekingsplatform/status`) en herstelt daarmee
+dezelfde "voltooid"-markering. Beide manieren zetten uiteindelijk hetzelfde:
+`geplaatst` → levering voltooid, `afgerond` → ook de afhaling.
 
 ### Bestaande leveringen blijven veilig
 Een boeking die hier al bestaat (herkend via het boekingsnummer) wordt bij een
 nieuwe sync enkel bijgewerkt in de planninggegevens (klant, adres, data,
-artikelen, bedrag) — een reeds ingevulde plaatsingschecklist, foto's, status
-en een reeds door de crew zelf gezette ploeg-toewijzing blijven altijd
-onaangeroerd. Een sync kan dus nooit werk van de plaatsers overschrijven.
+artikelen, bedrag, en — zoals hierboven — voertuig/volgorde zodra Planning die
+instelt). Checklist, foto's en status blijven altijd onaangeroerd. Een sync
+kan dus nooit dat soort werk van de plaatsers overschrijven.
 

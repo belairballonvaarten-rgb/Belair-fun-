@@ -335,9 +335,39 @@ app.post('/api/deliveries', auth, async (req, res) => {
 });
 app.put('/api/deliveries/:id', auth, async (req, res) => {
   const d = req.body;
+  const oud = await pool.query('SELECT data FROM deliveries WHERE id=$1', [req.params.id]);
+  const oudeStatus = oud.rows[0] ? oud.rows[0].data.status : null;
   await pool.query('UPDATE deliveries SET data=$1, updated_at=now() WHERE id=$2', [d, req.params.id]);
   res.json({ ok: true });
+
+  // Live terugkoppelen naar het boekingsplatform zodra de status van deze
+  // levering effectief wijzigt (bv. chauffeur zet "te-leveren" -> "geplaatst"
+  // -> "afgerond", of zet iets terug) — zo verschijnt "voltooid" op het
+  // Dashboard daar zonder dat iemand daar nog op "Nu synchroniseren" moet
+  // drukken. Gebeurt PAS NA het antwoorden aan de chauffeur (die actie zelf
+  // wordt hierdoor dus niet vertraagd), en een fout hier (boekingsplatform
+  // niet bereikbaar/niet geconfigureerd) blokkeert die actie ook niet — de
+  // bestaande "Nu synchroniseren"-knop daar blijft als terugvaloptie werken.
+  if (d.boekingsnummer && d.status !== oudeStatus) {
+    stuurStatusNaarBoekingsplatform(d.boekingsnummer, d.status)
+      .catch((e) => console.warn('[sync] kon status niet live terugsturen naar het boekingsplatform:', e.message));
+  }
 });
+
+// Zelfde gedeelde sleutel als de binnenkomende sync (SYNC_SECRET_BOEKINGSPLATFORM) —
+// hier gebruikt om onszelf bij het boekingsplatform te identificeren, want die
+// kant verwacht exact dezelfde waarde terug in LEVERINGEN_APP_SYNC_SECRET.
+async function stuurStatusNaarBoekingsplatform(boekingsnummer, status) {
+  const url = process.env.BOEKINGSPLATFORM_URL;
+  const sleutel = process.env.SYNC_SECRET_BOEKINGSPLATFORM;
+  if (!url || !sleutel) return; // koppeling (nog) niet geconfigureerd — stil overslaan
+  const resp = await fetch(url.replace(/\/$/, '') + '/api/sync/leveringen-app/status-update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Belair-Sync-Key': sleutel },
+    body: JSON.stringify({ boekingsnummer, status }),
+  });
+  if (!resp.ok) throw new Error(`boekingsplatform antwoordde met status ${resp.status}`);
+}
 app.delete('/api/deliveries/:id', auth, adminOnly, async (req, res) => {
   await pool.query('DELETE FROM deliveries WHERE id=$1', [req.params.id]);
   res.json({ ok: true });
@@ -791,8 +821,13 @@ app.post('/api/sync/boekingsplatform', async (req, res) => {
   for (const b of boekingen) {
     if (!b || !b.boekingsnummer) { fouten.push('Boeking zonder boekingsnummer overgeslagen'); continue; }
     try {
-      const team = vindTeam(b.voertuig);
-      if (b.voertuig && !team) onherkendeVoertuigen.add(b.voertuig);
+      // Levering en afhaling van dezelfde boeking kunnen elk hun eigen
+      // voertuig/team hebben (bv. geleverd met de camionette, opgehaald met
+      // de bus) — dus apart opzoeken, nooit hetzelfde team voor beide zetten.
+      const teamLevering = vindTeam(b.voertuig);
+      const teamAfhaling = vindTeam(b.voertuigAfhaling);
+      if (b.voertuig && !teamLevering) onherkendeVoertuigen.add(b.voertuig);
+      if (b.voertuigAfhaling && !teamAfhaling) onherkendeVoertuigen.add(b.voertuigAfhaling);
 
       const r = await pool.query(
         "SELECT id, data FROM deliveries WHERE data->>'boekingsnummer' = $1 AND data->>'boekingsnummer' <> ''",
@@ -801,9 +836,13 @@ app.post('/api/sync/boekingsplatform', async (req, res) => {
 
       if (r.rows.length > 0) {
         // Bestaande levering: enkel de planninggegevens overschrijven vanuit het
-        // boekingsplatform. Checklists, foto's, status en een reeds door de crew
-        // zelf gezette voertuigtoewijzing blijven onaangeroerd — een sync mag
-        // nooit werk van de plaatsers wissen.
+        // boekingsplatform. Checklists, foto's en status blijven onaangeroerd —
+        // een sync mag nooit werk van de plaatsers wissen. Voertuig en
+        // routevolgorde komen sinds de Planning-pagina wél altijd mee vanuit het
+        // boekingsplatform ZODRA die daar een waarde heeft (Planning is dan de
+        // "master"); stuurt het boekingsplatform niets door voor dat veld (nog
+        // niet ingepland), dan blijft een eventuele bestaande toewijzing/volgorde
+        // — al dan niet rechtstreeks in de app gezet — gewoon behouden.
         const bestaand = r.rows[0];
         const nieuw = {
           ...bestaand.data,
@@ -811,7 +850,10 @@ app.post('/api/sync/boekingsplatform', async (req, res) => {
           adres: b.adres || '', datum: b.datum || '', tijdslot: b.tijdslot || '',
           afhaaldatum: b.afhaaldatum || '', afhaaltijd: b.afhaaltijd || '',
           artikelen: b.artikelen || '', bedrag: b.bedrag != null ? String(b.bedrag) : '',
-          toegewezenAan: bestaand.data.toegewezenAan || (team ? { type: 'team', id: team.id, naam: team.naam } : null),
+          toegewezenAan: teamLevering ? { type: 'team', id: teamLevering.id, naam: teamLevering.naam } : bestaand.data.toegewezenAan,
+          toegewezenAanAfhaling: teamAfhaling ? { type: 'team', id: teamAfhaling.id, naam: teamAfhaling.naam } : bestaand.data.toegewezenAanAfhaling,
+          handmatigeVolgordeLevering: b.volgordeLevering != null ? b.volgordeLevering : bestaand.data.handmatigeVolgordeLevering,
+          handmatigeVolgordeAfhaling: b.volgordeAfhaling != null ? b.volgordeAfhaling : bestaand.data.handmatigeVolgordeAfhaling,
         };
         await pool.query('UPDATE deliveries SET data=$1, updated_at=now() WHERE id=$2', [nieuw, bestaand.id]);
         bijgewerkt++;
@@ -822,7 +864,10 @@ app.post('/api/sync/boekingsplatform', async (req, res) => {
         d.afhaaldatum = b.afhaaldatum || ''; d.afhaaltijd = b.afhaaltijd || '';
         d.artikelen = b.artikelen || ''; d.bedrag = b.bedrag != null ? String(b.bedrag) : '';
         d.boekingsnummer = b.boekingsnummer;
-        d.toegewezenAan = team ? { type: 'team', id: team.id, naam: team.naam } : null;
+        d.toegewezenAan = teamLevering ? { type: 'team', id: teamLevering.id, naam: teamLevering.naam } : null;
+        d.toegewezenAanAfhaling = teamAfhaling ? { type: 'team', id: teamAfhaling.id, naam: teamAfhaling.naam } : null;
+        d.handmatigeVolgordeLevering = b.volgordeLevering != null ? b.volgordeLevering : null;
+        d.handmatigeVolgordeAfhaling = b.volgordeAfhaling != null ? b.volgordeAfhaling : null;
         await pool.query('INSERT INTO deliveries(id, data) VALUES ($1,$2)', [d.id, d]);
         aangemaakt++;
       }
@@ -832,6 +877,25 @@ app.post('/api/sync/boekingsplatform', async (req, res) => {
   }
 
   res.json({ aangemaakt, bijgewerkt, onherkendeVoertuigen: [...onherkendeVoertuigen], fouten });
+});
+
+// Geeft de huidige status (en toewijzing) terug van elke gesynchroniseerde
+// levering — het boekingsplatform roept dit na elke "Nu synchroniseren" op om
+// de "voltooid"-markering op zijn eigen Dashboard bij te werken zodra de crew
+// dit in de app aanvinkt (status 'geplaatst' = levering gebeurd, 'afgerond' =
+// ook al opgehaald). Enkel leesbaar met dezelfde sleutel als de sync zelf.
+app.get('/api/sync/boekingsplatform/status', async (req, res) => {
+  const sleutel = process.env.SYNC_SECRET_BOEKINGSPLATFORM;
+  if (!sleutel) {
+    return res.status(501).json({ error: 'Koppeling met het boekingsplatform is nog niet geconfigureerd (SYNC_SECRET_BOEKINGSPLATFORM ontbreekt bij Render).' });
+  }
+  if (req.headers['x-belair-sync-key'] !== sleutel) {
+    return res.status(401).json({ error: 'Ongeldige sleutel' });
+  }
+  const r = await pool.query(
+    "SELECT data->>'boekingsnummer' AS boekingsnummer, data->>'status' AS status FROM deliveries WHERE data->>'boekingsnummer' <> ''"
+  );
+  res.json({ leveringen: r.rows });
 });
 
 app.get('*', (req, res) => {
