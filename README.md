@@ -216,3 +216,92 @@ op de tekst "Belair·Fun".
   inactiviteit en moet dan even opstarten bij het eerste bezoek). Voor een
   bedrijfsapp die dagelijks gebruikt wordt, is het instant-actieve betaalde
   plan (~7 €/maand) comfortabeler.
+
+## Koppeling met de WordPress-website (beschikbaarheid)
+
+De app kan de actuele boekingen doorsturen naar de WordPress-plugin "Belair
+Beschikbaarheid" (bestand `belair-availability.php`), zodat de kalender op
+de website automatisch bijgewerkt blijft — geen aparte Excel/CSV meer nodig.
+
+### 1. Plugin installeren/bijwerken op WordPress
+Upload `belair-availability.php` naar `wp-content/plugins/` op de website
+(via FTP, hostingpaneel-bestandsbeheer, of de Plugin-bestandseditor in
+WordPress zelf), ter vervanging van de bestaande versie. Deze bevat een
+extra, apart stukje code (een REST-API-toegang) bovenop de bestaande
+functionaliteit — niets van de bestaande CSV-import of handmatige
+blokkeringen wordt aangepast.
+
+### 2. Sleutel en adres ophalen
+Ga in WordPress naar **Beschikbaarheid → Instellingen**. Bovenaan staat nu
+een sectie "Koppeling met de Belair-Fun app" met:
+- Een **API-adres** (eindigt op `/wp-json/belair/v1/sync`)
+- Een **geheime sleutel** (kan je op diezelfde pagina ook opnieuw genereren
+  als je vermoedt dat hij gelekt is — pas ze dan wel meteen ook hieronder aan)
+
+### 3. Vul in bij Render
+Ga naar de Web Service van de Belair-Fun app → **Environment** en voeg toe:
+- `WORDPRESS_SITE_URL` = het normale site-adres, bv. `https://www.belair-fun.be`
+  (dus **niet** het volledige API-adres met `/wp-json/...` erachter — de app
+  voegt dat er zelf aan toe)
+- `WORDPRESS_SYNC_SECRET` = de geheime sleutel uit stap 2
+
+### 4. Synchroniseren
+In de Belair-Fun app, bij **Instellingen → Website-koppeling**, staat een
+knop **"🔄 Nu synchroniseren"**. Dit gebeurt **enkel** wanneer hierop gedrukt
+wordt — niets automatisch, niets op de achtergrond. De app stuurt dan alle
+boekingen vanaf 2 dagen geleden tot in de toekomst door (leverdatum,
+afhaaldatum, artikelen per boeking).
+
+Er is ook een vinkje **"Volledige synchronisatie"** — enkel gebruiken als je
+zeker weet dat de volledige actuele planning in de app zit, want dit
+vervangt alle eerder via de app doorgestuurde blokkeringen op de website
+(handmatige blokkeringen en CSV-imports op de website blijven wel altijd
+gewoon staan, die worden nooit aangeraakt).
+
+### Productnamen laten overeenkomen
+De matching tussen wat in een boeking staat (bv. "CM springkasteel") en de
+producten op de website gebeurt op dezelfde manier als de bestaande
+CSV-import van de plugin (aliaslijst + exacte naam). Klopt een naam niet,
+dan toont het resultaatbericht na synchroniseren duidelijk welke
+productnamen niet herkend werden, en of het product op de website wel
+"actief voor beschikbaarheid" staat (Beschikbaarheid → Instellingen →
+"Welke producten gebruiken beschikbaarheid?").
+
+## Koppeling met het boekingsplatform
+
+Het aparte boekingsplatform (het beheerscherm waarin reservaties worden
+aangemaakt/opgevolgd) kan geplande boekingen doorsturen naar déze app, zodat
+de crew ze hier niet manueel moet overtypen. De richting is dus omgekeerd
+t.o.v. de WordPress-koppeling hierboven: hier is de Belair-Fun-app de
+**ontvanger**, niet de verzender.
+
+### 1. Sleutel instellen bij Render
+Ga naar de Web Service van de Belair-Fun app → **Environment** en voeg toe:
+- `SYNC_SECRET_BOEKINGSPLATFORM` = een lange, willekeurige tekst (verzin er
+  zelf een — het is enkel een gedeeld geheim, geen bestaand wachtwoord)
+
+Vul exact dezelfde waarde in bij het boekingsplatform zelf, bij
+**Instellingen → Koppeling met de leveringen-app** (`LEVERINGEN_APP_SYNC_SECRET`
+in diens omgevingsvariabelen), samen met het adres van déze app
+(`LEVERINGEN_APP_URL`, bv. `https://belair-fun.onrender.com`).
+
+### 2. Synchroniseren
+Gebeurt volledig vanuit het boekingsplatform (knop **"🔄 Nu synchroniseren"**
+bij Instellingen daar) — hier hoef je niets te doen. Net als bij de
+WordPress-koppeling: enkel wanneer daarop gedrukt wordt, niets automatisch.
+
+### Voertuig-toewijzing
+Wijst het boekingsplatform al een voertuig toe aan een boeking, dan wordt dat
+hier automatisch gekoppeld aan het **team** met exact dezelfde naam (Team-tabblad,
+enkel voor administrators). Komt een naam niet overeen, dan blijft de levering
+gewoon aangemaakt/bijgewerkt — enkel zonder ploeg-toewijzing — en toont het
+boekingsplatform na de sync welke naam niet herkend werd, zodat je de teamnaam
+kan aanpassen of de naam aan boekingsplatform-kant kan laten corrigeren.
+
+### Bestaande leveringen blijven veilig
+Een boeking die hier al bestaat (herkend via het boekingsnummer) wordt bij een
+nieuwe sync enkel bijgewerkt in de planninggegevens (klant, adres, data,
+artikelen, bedrag) — een reeds ingevulde plaatsingschecklist, foto's, status
+en een reeds door de crew zelf gezette ploeg-toewijzing blijven altijd
+onaangeroerd. Een sync kan dus nooit werk van de plaatsers overschrijven.
+

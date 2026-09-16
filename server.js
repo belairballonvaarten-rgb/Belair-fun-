@@ -123,6 +123,8 @@ function emptyDeliveryServer() {
     toegewezenAanAfhaling: null,
     handmatigeVolgordeLevering: null,
     handmatigeVolgordeAfhaling: null,
+    geo: null,
+    oorspronkelijkBedrag: null,
     plaatsing: {
       correctGeplaatst: false, bevestiging: '', valmatten: false, verlengkabel: false,
       aantalKabels: '', aantalZandzakken: '', netjes: false, opmerkingen: '', tijdstip: '', bevestigd: false, bevestigdOp: ''
@@ -760,6 +762,76 @@ app.post('/api/sync-website', auth, adminOnly, async (req, res) => {
   } catch (e) {
     res.status(502).json({ error: 'Kon de website niet bereiken: ' + e.message });
   }
+});
+
+// ---------- Koppeling met het boekingsplatform ----------
+// Ontvangt geplande boekingen vanuit het boekingsplatform (manueel getriggerd
+// aan die kant, net als de website-sync hierboven) en zet ze om in/bij
+// leveringen. Beveiligd met een gedeelde sleutel i.p.v. een gebruikers-login,
+// want dit is server-naar-server verkeer, geen ingelogde gebruiker.
+app.post('/api/sync/boekingsplatform', async (req, res) => {
+  const sleutel = process.env.SYNC_SECRET_BOEKINGSPLATFORM;
+  if (!sleutel) {
+    return res.status(501).json({ error: 'Koppeling met het boekingsplatform is nog niet geconfigureerd (SYNC_SECRET_BOEKINGSPLATFORM ontbreekt bij Render).' });
+  }
+  if (req.headers['x-belair-sync-key'] !== sleutel) {
+    return res.status(401).json({ error: 'Ongeldige sleutel' });
+  }
+
+  const boekingen = Array.isArray(req.body && req.body.boekingen) ? req.body.boekingen : [];
+  const teamsRes = await pool.query('SELECT id, naam FROM teams');
+  const teams = teamsRes.rows;
+  const vindTeam = (naam) => naam && teams.find(t => t.naam.trim().toLowerCase() === String(naam).trim().toLowerCase());
+
+  let aangemaakt = 0;
+  let bijgewerkt = 0;
+  const onherkendeVoertuigen = new Set();
+  const fouten = [];
+
+  for (const b of boekingen) {
+    if (!b || !b.boekingsnummer) { fouten.push('Boeking zonder boekingsnummer overgeslagen'); continue; }
+    try {
+      const team = vindTeam(b.voertuig);
+      if (b.voertuig && !team) onherkendeVoertuigen.add(b.voertuig);
+
+      const r = await pool.query(
+        "SELECT id, data FROM deliveries WHERE data->>'boekingsnummer' = $1 AND data->>'boekingsnummer' <> ''",
+        [b.boekingsnummer]
+      );
+
+      if (r.rows.length > 0) {
+        // Bestaande levering: enkel de planninggegevens overschrijven vanuit het
+        // boekingsplatform. Checklists, foto's, status en een reeds door de crew
+        // zelf gezette voertuigtoewijzing blijven onaangeroerd — een sync mag
+        // nooit werk van de plaatsers wissen.
+        const bestaand = r.rows[0];
+        const nieuw = {
+          ...bestaand.data,
+          klant: b.klant || '', telefoon: b.telefoon || '', email: b.email || '',
+          adres: b.adres || '', datum: b.datum || '', tijdslot: b.tijdslot || '',
+          afhaaldatum: b.afhaaldatum || '', afhaaltijd: b.afhaaltijd || '',
+          artikelen: b.artikelen || '', bedrag: b.bedrag != null ? String(b.bedrag) : '',
+          toegewezenAan: bestaand.data.toegewezenAan || (team ? { type: 'team', id: team.id, naam: team.naam } : null),
+        };
+        await pool.query('UPDATE deliveries SET data=$1, updated_at=now() WHERE id=$2', [nieuw, bestaand.id]);
+        bijgewerkt++;
+      } else {
+        const d = emptyDeliveryServer();
+        d.klant = b.klant || ''; d.telefoon = b.telefoon || ''; d.email = b.email || '';
+        d.adres = b.adres || ''; d.datum = b.datum || ''; d.tijdslot = b.tijdslot || '';
+        d.afhaaldatum = b.afhaaldatum || ''; d.afhaaltijd = b.afhaaltijd || '';
+        d.artikelen = b.artikelen || ''; d.bedrag = b.bedrag != null ? String(b.bedrag) : '';
+        d.boekingsnummer = b.boekingsnummer;
+        d.toegewezenAan = team ? { type: 'team', id: team.id, naam: team.naam } : null;
+        await pool.query('INSERT INTO deliveries(id, data) VALUES ($1,$2)', [d.id, d]);
+        aangemaakt++;
+      }
+    } catch (e) {
+      fouten.push(`${b.boekingsnummer}: ${e.message}`);
+    }
+  }
+
+  res.json({ aangemaakt, bijgewerkt, onherkendeVoertuigen: [...onherkendeVoertuigen], fouten });
 });
 
 app.get('*', (req, res) => {
