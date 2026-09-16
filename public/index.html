@@ -534,10 +534,6 @@ button{font-family:'Inter',sans-serif;}
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
       Planning
     </button>
-    <button data-tab="new" class="tab-btn">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
-      Nieuw
-    </button>
     <button data-tab="dossiers" class="tab-btn">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4zM4 9h16"/></svg>
       Overzicht
@@ -624,15 +620,14 @@ async function loadPhotos(id){
   try{ return await apiFetch('/api/deliveries/' + id + '/photos'); }
   catch(e){ return []; }
 }
-async function addPhotoRemote(id, naam, dataUrl){
-  return apiFetch('/api/deliveries/' + id + '/photos', { method:'POST', body: JSON.stringify({ naam, dataUrl }) });
+async function addPhotoRemote(id, naam, dataUrl, fase){
+  return apiFetch('/api/deliveries/' + id + '/photos', { method:'POST', body: JSON.stringify({ naam, dataUrl, fase }) });
 }
 async function removePhotoRemote(deliveryId, photoId){
   await apiFetch('/api/deliveries/' + deliveryId + '/photos/' + photoId, { method:'DELETE' });
 }
 
 // ---------- Utilities ----------
-function uid(){ return 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 function fmtDate(iso){
   if(!iso) return '—';
   const d = new Date(iso + 'T00:00:00');
@@ -680,50 +675,6 @@ function normalizeOndergrond(v){
   if(s.includes('gras') || s.includes('grass')) return 'Op gras';
   return v;
 }
-function emptyDelivery(){
-  return {
-    id: uid(),
-    klant: '', telefoon: '', email: '', adres: '', postcode: '', ondergrond: '',
-    datum: todayISO(), tijdslot: '',
-    afhaaldatum: '', afhaaltijd: '',
-    artikelen: '', bedrag: '', boekingsnummer: '',
-    status: 'te-leveren',
-    toegewezenAan: null, // { id, naam } chauffeur voor levering, of null = voor alle chauffeurs
-    toegewezenAanAfhaling: null, // { id, naam } chauffeur voor afhaling, apart van levering
-    handmatigeVolgordeLevering: null, // getal = manueel bepaalde positie bij "Te leveren"
-    handmatigeVolgordeAfhaling: null, // getal = manueel bepaalde positie bij "Op te halen" — apart veld, onafhankelijk van levering
-    geo: null, // { lat, lng, voorAdres } — cache van de laatst opgezochte locatie voor dit adres
-    oorspronkelijkBedrag: null, // bewaart het bedrag van vóór "voldaan", zodat dat nooit verloren gaat als het saldo op 0 gezet wordt
-    plaatsing: {
-      correctGeplaatst: false,
-      bevestiging: '', // pinnen | zandzakken | verankering | geen
-      valmatten: false,
-      verlengkabel: false,
-      aantalKabels: '',
-      aantalZandzakken: '',
-      netjes: false,
-      opmerkingen: '',
-      tijdstip: '',
-      bevestigd: false,
-      bevestigdOp: ''
-    },
-    betaling: { status: '', opmerking: '' }, // voldaan-cash | voldaan-overschrijving | factuur
-    afhaling: {
-      valmattenTerug: false,
-      kabelsTerug: false,
-      bevestigingTerug: false, // pinnen/zandzakken/verankering terug mee, afhankelijk van plaatsing.bevestiging
-      natOfVuil: false,
-      reinigingNodig: false,
-      opmerkingen: '',
-      tijdstip: '',
-      bevestigd: false,
-      bevestigdOp: '',
-      verzetAangevraagd: false, // afhaling lukte niet, verzetting naar andere dag aangevraagd
-      verzetNaarDatum: '', // voorgestelde nieuwe afhaaldatum
-      verzetReden: ''
-    }
-  };
-}
 function fmtDateTime(iso){
   if(!iso) return '';
   const d = new Date(iso);
@@ -756,10 +707,6 @@ function render(){
       sub.textContent = 'Planning';
       main.innerHTML = renderList();
       bindListEvents();
-    } else if(view === 'new'){
-      sub.textContent = 'Nieuwe levering';
-      main.innerHTML = renderNewForm();
-      bindNewFormEvents();
     } else if(view === 'dossiers'){
       sub.textContent = 'Overzicht';
       main.innerHTML = renderDossiers();
@@ -874,11 +821,8 @@ function renderInstellingen(){
   </div>
   <div class="section">
     <h3>Voertuigen</h3>
-    <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">Het voertuig zelf blijft vast (bv. "Voertuig 1"), maar tik een voertuig open om de bemanning aan te passen telkens de ploeg wisselt — chauffeur en begeleider(s) hoeven dus niet elke shift opnieuw individueel toegewezen te worden. Dagelijkse bemanningswissels kan je ook sneller via "Huidige bezetting" bovenaan Planning.</div>
-    <div id="teams-list" style="margin-bottom:14px">Laden...</div>
-    <div class="field"><label>Naam nieuw voertuig</label><input type="text" id="team-naam" placeholder="Bv. Voertuig 1"></div>
-    <div class="field" id="team-members-field"><label>Beginbemanning</label><div id="team-members-checkboxes">Laden...</div></div>
-    <button class="btn small secondary" id="team-add-btn">Voertuig toevoegen</button>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">Voertuigen zelf (toevoegen/hernoemen/verwijderen) worden voortaan beheerd op het boekingsplatform — hier enkel ter info. Wie er vandaag in welk voertuig zit, pas je aan via "Huidige bezetting" bovenaan Planning (apart voor levering en afhaling, ten allen tijde).</div>
+    <div id="teams-list" style="margin-bottom:0">Laden...</div>
   </div>
   <div class="section">
     <h3>Nieuw teamlid</h3>
@@ -937,36 +881,9 @@ function renderInstellingen(){
   <div class="section">
     <h3>Materiaal-info</h3>
     <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">
-      Vaste materiaal-info per product — verschijnt automatisch op de laadlijst en in het totaaloverzicht onderaan, telkens dit product in een boeking voorkomt. De naam moet exact overeenkomen met hoe het product in de boekingen genoemd wordt. Pinnen gelden voor "Op gras", zandzakken + valmatten voor "Harde ondergrond".
+      Vaste materiaal-info per product — verschijnt automatisch op de laadlijst en in het totaaloverzicht onderaan, telkens dit product in een boeking voorkomt. Producten (toevoegen/aanpassen/verwijderen) worden voortaan beheerd op het boekingsplatform — hier enkel ter info.
     </div>
-    <input type="file" accept=".xlsx" id="product-import-file" style="display:none">
-    <button class="btn secondary" id="product-import-btn" style="margin-bottom:10px">Excel-bestand importeren</button>
-    <div id="product-import-result" style="margin-bottom:14px;font-size:13px"></div>
-    <div id="producten-list" style="margin-bottom:14px">Laden...</div>
-    <div class="field"><label>Productnaam</label><input type="text" id="product-naam" placeholder="Bv. Springkasteel Draak XL"></div>
-    <div class="field">
-      <label>Motor type</label>
-      <select id="product-motor-type">
-        <option value="">Geen</option>
-        <option value="Standaard motor">Standaard motor</option>
-        <option value="Zware motor">Zware motor</option>
-        <option value="Gele motor">Gele motor</option>
-      </select>
-    </div>
-    <div class="two-col">
-      <div class="field"><label>Aantal motors</label><input type="number" min="0" id="product-aantal-motors"></div>
-      <div class="field"><label>Verlengkabel standaard</label><input type="number" min="0" id="product-kabel-standaard"></div>
-    </div>
-    <div class="two-col">
-      <div class="field"><label>Verlengkabel dubbel</label><input type="number" min="0" id="product-kabel-dubbel"></div>
-      <div class="field"><label>Pinnen (op gras)</label><input type="number" min="0" id="product-pinnen"></div>
-    </div>
-    <div class="two-col">
-      <div class="field"><label>Zandzakken (harde ondergrond)</label><input type="number" min="0" id="product-zandzakken"></div>
-      <div class="field"><label>Valmatten (harde ondergrond)</label><input type="number" min="0" id="product-valmatten"></div>
-    </div>
-    <div class="field"><label>Overige benodigdheden</label><input type="text" id="product-overige" placeholder="Bv. Ballen + 2 stokken"></div>
-    <button class="btn small secondary" id="product-add-btn">Opslaan</button>
+    <div id="producten-list" style="margin-bottom:0">Laden...</div>
   </div>
   `;
 }
@@ -1176,7 +1093,7 @@ function renderSelectedVehicleBlock(){
     return `<div class="queue-note" style="text-align:left">Nog geen voertuigen aangemaakt.</div>`;
   }
   const selectEl = document.getElementById('voertuig-select');
-  const teamId = selectEl ? parseInt(selectEl.value,10) : (teamsData.find(t=>myTeamIds.includes(t.id)) || teamsData[0]).id;
+  const teamId = selectEl ? selectEl.value : (teamsData.find(t=>myTeamIds.includes(t.id)) || teamsData[0]).id;
   const t = teamsData.find(x => x.id === teamId);
   if(!t) return `<div class="queue-note" style="text-align:left">Voertuig niet gevonden.</div>`;
   const block = renderVehicleBlock(t, perDriverDate);
@@ -1192,7 +1109,7 @@ async function bindVoertuigTabEvents(){
   bindVoertuigLaadlijstButtons();
   bindVoertuigRowClicks();
   selectEl.addEventListener('change', ()=>{
-    selectedVoertuigTabId = selectEl.value ? parseInt(selectEl.value,10) : null;
+    selectedVoertuigTabId = selectEl.value || null;
     document.getElementById('voertuig-content').innerHTML = renderSelectedVehicleBlock();
     bindVoertuigLaadlijstButtons();
     bindVoertuigRowClicks();
@@ -1230,7 +1147,7 @@ function bindVoertuigLaadlijstButtons(){
       btn.disabled = true;
       const orig = btn.textContent;
       btn.textContent = 'Bezig...';
-      try{ await generateLaadlijstPdf(parseInt(btn.dataset.laadlijst,10), perDriverDate); }
+      try{ await generateLaadlijstPdf(btn.dataset.laadlijst, perDriverDate); }
       catch(err){ showToast(err.message); }
       btn.disabled = false;
       btn.textContent = orig;
@@ -1397,7 +1314,7 @@ function bindUnassignedRows(){
       e.stopPropagation();
       const id = sel.dataset.quickId;
       const field = sel.dataset.quickField;
-      const teamId = sel.value ? parseInt(sel.value,10) : null;
+      const teamId = sel.value || null;
       const d = getDelivery(id);
       if(!d) return;
       const team = teamId ? teamsData.find(t=>t.id===teamId) : null;
@@ -1421,7 +1338,7 @@ function bindAfhalingenKaartButtons(scopeSelector){
   document.querySelectorAll(scopeSelector + ' [data-afhalingen-kaart]').forEach(btn=>{
     btn.addEventListener('click', async (e)=>{
       e.preventDefault();
-      const teamId = parseInt(btn.dataset.afhalingenKaart, 10);
+      const teamId = btn.dataset.afhalingenKaart;
       const mapId = 'afhalingen-kaart-' + teamId;
       const containerEl = document.getElementById(mapId);
       const statusEl = document.getElementById(mapId + '-status');
@@ -1444,7 +1361,7 @@ function bindPerVehicleRows(){
       btn.disabled = true;
       const orig = btn.textContent;
       btn.textContent = 'Bezig...';
-      try{ await generateLaadlijstPdf(parseInt(btn.dataset.laadlijst,10), perDriverDate); }
+      try{ await generateLaadlijstPdf(btn.dataset.laadlijst, perDriverDate); }
       catch(err){ showToast(err.message); }
       btn.disabled = false;
       btn.textContent = orig;
@@ -1616,61 +1533,9 @@ async function bindInstellingenEvents(){
       setView('instellingen');
     }catch(err){ showToast(err.message); }
   });
-  document.getElementById('team-add-btn').addEventListener('click', async ()=>{
-    const naam = document.getElementById('team-naam').value.trim();
-    if(!naam){ showToast('Geef het voertuig een naam'); return; }
-    const memberIds = Array.from(document.querySelectorAll('.team-member-cb:checked')).map(cb => parseInt(cb.value,10));
-    try{
-      await apiFetch('/api/teams', { method:'POST', body: JSON.stringify({ naam, memberIds }) });
-      showToast('Voertuig toegevoegd');
-      document.getElementById('team-naam').value = '';
-      await loadTeamsData();
-    }catch(err){ showToast(err.message); }
-  });
-  document.getElementById('product-add-btn').addEventListener('click', async ()=>{
-    const naam = document.getElementById('product-naam').value.trim();
-    if(!naam){ showToast('Geef een productnaam in'); return; }
-    const val = id => document.getElementById(id).value;
-    try{
-      await apiFetch('/api/producten', { method:'POST', body: JSON.stringify({
-        naam,
-        motorType: val('product-motor-type'),
-        aantalMotors: val('product-aantal-motors'),
-        verlengkabelStandaard: val('product-kabel-standaard'),
-        verlengkabelDubbel: val('product-kabel-dubbel'),
-        pinnen: val('product-pinnen'),
-        zandzakken: val('product-zandzakken'),
-        valmatten: val('product-valmatten'),
-        overige: val('product-overige')
-      }) });
-      showToast('Materiaal-info opgeslagen');
-      ['product-naam','product-aantal-motors','product-kabel-standaard','product-kabel-dubbel','product-pinnen','product-zandzakken','product-valmatten','product-overige'].forEach(id=>{ document.getElementById(id).value=''; });
-      document.getElementById('product-motor-type').value = '';
-      await loadProductenData();
-    }catch(err){ showToast(err.message); }
-  });
-  document.getElementById('product-import-btn').addEventListener('click', ()=> document.getElementById('product-import-file').click());
-  document.getElementById('product-import-file').addEventListener('change', async (e)=>{
-    const file = e.target.files[0];
-    if(!file) return;
-    const resultEl = document.getElementById('product-import-result');
-    resultEl.textContent = 'Bezig met importeren...';
-    try{
-      const fileBase64 = await new Promise((resolve, reject)=>{
-        const reader = new FileReader();
-        reader.onload = ()=> resolve(reader.result.split(',')[1]);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-      const r = await apiFetch('/api/producten/import', { method:'POST', body: JSON.stringify({ fileBase64 }) });
-      let msg = r.imported + ' product(en) geïmporteerd/bijgewerkt.';
-      if(r.skipped && r.skipped.length) msg += ' ' + r.skipped.length + ' rij(en) overgeslagen.';
-      resultEl.textContent = msg;
-      showToast('Import voltooid');
-      await loadProductenData();
-    }catch(err){ resultEl.textContent = 'Import mislukt: ' + err.message; }
-    e.target.value = '';
-  });
+  // Voertuigen en materiaal-info (producten) zijn read-only geworden in de crew-app:
+  // beheer daarvan gebeurt voortaan op het boekingsplatform, dus de bijhorende
+  // add/import-knoppen en hun listeners zijn hier bewust verwijderd.
   await refreshTeamList();
   await loadTeamsData();
   await loadProductenData();
@@ -1702,19 +1567,8 @@ async function loadProductenData(){
         <div class="naam">${escapeHtml(p.naam)}</div>
         <div class="rolbadge">${escapeHtml(productSummaryLine(p))}</div>
       </div>
-      <span class="rm" data-product-naam="${escapeHtml(p.naam)}">Verwijderen</span>
     </div>
   `).join('');
-  el.querySelectorAll('.rm').forEach(btn=>{
-    btn.addEventListener('click', async ()=>{
-      if(!confirm('Deze materiaal-info verwijderen?')) return;
-      try{
-        await apiFetch('/api/producten', { method:'DELETE', body: JSON.stringify({ naam: btn.dataset.productNaam }) });
-        showToast('Verwijderd');
-        await loadProductenData();
-      }catch(err){ showToast(err.message); }
-    });
-  });
 }
 
 let teamsData = [];
@@ -1732,64 +1586,24 @@ function findProduct(naam){
 }
 async function loadTeamsData(){
   const teamsListEl = document.getElementById('teams-list');
-  const checkboxesEl = document.getElementById('team-members-checkboxes');
   const notifyTargetEl = document.getElementById('notify-target');
   try{ teamsData = await apiFetch('/api/teams'); }
   catch(err){ if(teamsListEl) teamsListEl.textContent = err.message; return; }
 
   if(teamsListEl){
+    // Read-only: voertuigen zelf worden beheerd op het boekingsplatform. De
+    // getoonde bemanning is een momentopname van vandaag (levering-fase),
+    // puur ter info — echt aanpassen gebeurt via "Huidige bezetting" op Planning.
     teamsListEl.innerHTML = teamsData.length === 0
-      ? `<div class="queue-note" style="text-align:left">Nog geen voertuigen aangemaakt.</div>`
+      ? `<div class="queue-note" style="text-align:left">Nog geen voertuigen ingesteld.</div>`
       : teamsData.map(t => `
-        <details class="driver-block" data-team-row="${t.id}">
-          <summary>${escapeHtml(t.naam)} <span class="driver-count">${t.leden.map(l=>escapeHtml(l.naam)).join(', ') || 'Geen bemanning'}</span></summary>
-          <div style="margin-top:10px">
-            <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px">Bemanning voor deze shift/rit:</div>
-            <div class="team-edit-checkboxes">
-              ${assignableUsers.map(u => `
-                <label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:14px;cursor:pointer">
-                  <input type="checkbox" value="${u.id}" class="team-edit-cb" ${t.leden.some(l=>l.id===u.id) ? 'checked':''}> ${escapeHtml(u.naam)}
-                </label>
-              `).join('')}
-            </div>
-            <div class="stack" style="margin-top:10px">
-              <button class="btn small ok" data-save-team="${t.id}">Bemanning opslaan</button>
-              <button class="btn small danger" data-delete-team="${t.id}">Voertuig verwijderen</button>
-            </div>
+        <div class="team-row">
+          <div>
+            <div class="naam">${escapeHtml(t.naam)}</div>
+            <div class="rolbadge">${t.leden.map(l=>escapeHtml(l.naam)).join(', ') || 'Geen bemanning vandaag'}</div>
           </div>
-        </details>
+        </div>
       `).join('');
-    teamsListEl.querySelectorAll('[data-save-team]').forEach(btn=>{
-      btn.addEventListener('click', async (e)=>{
-        e.preventDefault();
-        const details = btn.closest('[data-team-row]');
-        const memberIds = Array.from(details.querySelectorAll('.team-edit-cb:checked')).map(cb=>parseInt(cb.value,10));
-        try{
-          await apiFetch('/api/teams/' + btn.dataset.saveTeam, { method:'PUT', body: JSON.stringify({ memberIds }) });
-          showToast('Bemanning bijgewerkt');
-          await loadTeamsData();
-        }catch(err){ showToast(err.message); }
-      });
-    });
-    teamsListEl.querySelectorAll('[data-delete-team]').forEach(btn=>{
-      btn.addEventListener('click', async (e)=>{
-        e.preventDefault();
-        if(!confirm('Dit voertuig verwijderen?')) return;
-        try{
-          await apiFetch('/api/teams/' + btn.dataset.deleteTeam, { method:'DELETE' });
-          showToast('Voertuig verwijderd');
-          await loadTeamsData();
-        }catch(err){ showToast(err.message); }
-      });
-    });
-  }
-
-  if(checkboxesEl){
-    checkboxesEl.innerHTML = assignableUsers.map(u => `
-      <label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:14px;cursor:pointer">
-        <input type="checkbox" value="${u.id}" class="team-member-cb"> ${escapeHtml(u.naam)}
-      </label>
-    `).join('') || '<div class="queue-note" style="text-align:left">Geen teamleden om te kiezen.</div>';
   }
 
   if(notifyTargetEl){
@@ -1938,7 +1752,7 @@ function bindKaartTabEvents(){
   const voertuigSelect = document.getElementById('kaart-voertuig-select');
   if(!voertuigSelect) return; // geen voertuigen aangemaakt
   voertuigSelect.addEventListener('change', ()=>{
-    kaartVoertuigId = voertuigSelect.value === 'alle' ? 'alle' : parseInt(voertuigSelect.value, 10);
+    kaartVoertuigId = voertuigSelect.value === 'alle' ? 'alle' : voertuigSelect.value;
     verversKaartTab();
   });
   const typePills = document.getElementById('kaart-type-pills');
@@ -2113,37 +1927,61 @@ function sortKeyFor(d, timeField){
   return 100000 + (mins != null ? mins : 9999);
 }
 let vehiclePanelOpen = false;
+// Bemanning is voortaan per dag ÉN per fase (levering/afhaling) — een crewlid kan
+// voor de levering in een ander voertuig zitten dan voor de afhaling, dezelfde dag.
+// Dit paneel werkt bewust enkel op VANDAAG (zie renderList()).
+let occupancyFase = 'levering';
+let occupancyBemanning = {}; // admin: { [voertuigId]: [{id,naam}] } voor occupancyFase, vandaag
+let myVoertuigen = { levering: null, afhaling: null }; // crew: eigen voertuig per fase, vandaag
+async function loadOccupancyData(){
+  if(currentUser.rol === 'admin'){
+    try{
+      const r = await apiFetch('/api/voertuig-bemanning?fase=' + occupancyFase);
+      occupancyBemanning = r.bemanning || {};
+    }catch(e){ occupancyBemanning = {}; }
+  } else {
+    try{ myVoertuigen = await apiFetch('/api/mijn-voertuig'); }
+    catch(e){ myVoertuigen = { levering: null, afhaling: null }; }
+  }
+}
 function renderVehicleOccupancyPanel(){
   const toggleLabel = vehiclePanelOpen ? 'Huidige bezetting ▲' : 'Huidige bezetting ▼';
   let inner = '';
   if(vehiclePanelOpen){
+    const faseLabel = f => f === 'levering' ? 'Levering' : 'Afhaling';
+    const fasePills = `<div class="pillgroup" style="margin-bottom:10px">
+      <span class="pill ${occupancyFase==='levering'?'active':''}" data-occ-fase="levering">Levering</span>
+      <span class="pill ${occupancyFase==='afhaling'?'active':''}" data-occ-fase="afhaling">Afhaling</span>
+    </div>`;
     if(teamsData.length === 0){
-      inner = `<div class="queue-note" style="text-align:left">Nog geen voertuigen aangemaakt.</div>`;
+      inner = fasePills + `<div class="queue-note" style="text-align:left">Nog geen voertuigen ingesteld.</div>`;
     } else if(currentUser.rol === 'admin'){
-      inner = teamsData.map(t=>`<details class="driver-block" data-occ-team="${t.id}">
-            <summary>${escapeHtml(t.naam)} <span class="driver-count">${t.leden.map(l=>escapeHtml(l.naam)).join(', ') || 'Geen bemanning'}</span></summary>
+      inner = fasePills + teamsData.map(t=>{
+        const leden = occupancyBemanning[t.id] || [];
+        return `<details class="driver-block" data-occ-team="${t.id}">
+            <summary>${escapeHtml(t.naam)} <span class="driver-count">${leden.map(l=>escapeHtml(l.naam)).join(', ') || 'Geen bemanning'}</span></summary>
             <div style="margin-top:10px">
               <div class="occ-checkboxes">
                 ${assignableUsers.map(u=>`
                   <label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:14px;cursor:pointer">
-                    <input type="checkbox" value="${u.id}" class="occ-cb" ${t.leden.some(l=>l.id===u.id)?'checked':''}> ${escapeHtml(u.naam)}
+                    <input type="checkbox" value="${u.id}" class="occ-cb" ${leden.some(l=>l.id===u.id)?'checked':''}> ${escapeHtml(u.naam)}
                   </label>
                 `).join('')}
               </div>
-              <button class="btn small ok" style="margin-top:8px" data-occ-save="${t.id}">Bemanning opslaan</button>
+              <button class="btn small ok" style="margin-top:8px" data-occ-save="${t.id}">Bemanning opslaan (${faseLabel(occupancyFase)})</button>
             </div>
-          </details>`).join('');
+          </details>`;
+      }).join('');
     } else {
-      // Crew ziet enkel het eigen voertuig, geen info over andere voertuigen/bemanning
-      const mineTeam = teamsData.find(t => myTeamIds.includes(t.id));
-      inner = `<div class="field" style="margin-bottom:0">
-        <label>Jouw voertuig</label>
+      // Crew ziet enkel het eigen voertuig voor de gekozen fase, geen info over andere voertuigen/bemanning
+      const mineId = myVoertuigen[occupancyFase];
+      inner = fasePills + `<div class="field" style="margin-bottom:0">
+        <label>Jouw voertuig voor ${faseLabel(occupancyFase).toLowerCase()}</label>
         <select id="my-vehicle-select">
           <option value="">Niet toegewezen</option>
-          ${teamsData.map(t=>`<option value="${t.id}" ${myTeamIds.includes(t.id)?'selected':''}>${escapeHtml(t.naam)}</option>`).join('')}
+          ${teamsData.map(t=>`<option value="${t.id}" ${mineId===t.id?'selected':''}>${escapeHtml(t.naam)}</option>`).join('')}
         </select>
-      </div>
-      ${mineTeam ? `<div style="font-size:11.5px;color:var(--text-dim);margin-top:8px">Bemanning: ${mineTeam.leden.map(l=>escapeHtml(l.naam)).join(', ') || 'Enkel jij'}</div>` : ''}`;
+      </div>`;
     }
   }
   return `<div style="margin-bottom:14px">
@@ -2195,7 +2033,8 @@ function cardHtml(d, extraClass, highlightMine){
   const factuurStar = (currentUser.rol === 'admin' && d.betaling.status === 'factuur') ? `<span class="star-badge" title="Nog te factureren">★</span>` : '';
   const verzetBadge = d.afhaling.verzetAangevraagd ? `<span class="assign-badge other" style="background:rgba(217,164,65,0.18);color:var(--warn)">🔁 Verzet aangevraagd</span>` : '';
   const tijdWeergave = d.status === 'te-leveren' ? d.tijdslot : (d.status === 'geplaatst' ? d.afhaaltijd : d.tijdslot);
-  const deleteBtn = currentUser.rol === 'admin' ? `<span class="card-delete-btn" data-delete-id="${d.id}" data-delete-naam="${escapeHtml(d.klant||'')}" title="Verwijderen">✕</span>` : '';
+  // Reservaties verwijderen kan enkel nog op het boekingsplatform zelf.
+  const deleteBtn = '';
   return `<div class="card status-${d.status} ${forMe?'card-mine':''}" data-id="${d.id}" style="${dimmed?'opacity:0.5':''}">
     <div class="row1">
       <div>
@@ -2284,7 +2123,7 @@ function renderList(){
   if(deliveries.length === 0){
     return vehicleOccupancyPanel + `<div class="empty">
       <div class="big">Nog geen leveringen</div>
-      Voeg een levering toe via "Nieuw" onderaan.
+      Zodra een boeking op het boekingsplatform klaarstaat om uitgevoerd te worden, verschijnt ze hier automatisch.
     </div>`;
   }
 
@@ -2384,20 +2223,9 @@ function renderList(){
   }
   return html;
 }
-async function requestDeleteDelivery(id, klant){
-  if(!confirm('Reservatie van ' + (klant||'deze klant') + ' definitief verwijderen? Dit kan niet ongedaan gemaakt worden.')) return false;
-  try{
-    await apiFetch('/api/deliveries/' + id, { method:'DELETE' });
-    const idx = deliveries.findIndex(x => x.id === id);
-    if(idx !== -1) deliveries.splice(idx,1);
-    persistedIds.delete(id);
-    showToast('Reservatie verwijderd');
-    return true;
-  }catch(err){
-    showToast(err.message);
-    return false;
-  }
-}
+// LET OP: geen requestDeleteDelivery(...) meer — een reservatie verwijderen
+// kan enkel nog op het boekingsplatform zelf (zie ook de lege deleteBtn's
+// hierboven en de verwijderde "Reservatie verwijderen"-knop in het dossier).
 function moveCard(sectionKey, id, dir){
   const order = renderedSections[sectionKey];
   if(!order) return;
@@ -2421,20 +2249,13 @@ function bindListEvents(){
   document.querySelectorAll('.card').forEach(c=>{
     c.addEventListener('click', ()=> setView('detail', c.dataset.id));
   });
-  document.querySelectorAll('.card-delete-btn').forEach(btn=>{
-    btn.addEventListener('click', async (e)=>{
-      e.stopPropagation();
-      const deleted = await requestDeleteDelivery(btn.dataset.deleteId, btn.dataset.deleteNaam);
-      if(deleted) render();
-    });
-  });
   document.querySelectorAll('.card-quick-assign').forEach(sel=>{
     sel.addEventListener('click', (e)=> e.stopPropagation());
     sel.addEventListener('change', async (e)=>{
       e.stopPropagation();
       const id = sel.dataset.quickId;
       const field = sel.dataset.quickField;
-      const teamId = sel.value ? parseInt(sel.value,10) : null;
+      const teamId = sel.value || null;
       const d = getDelivery(id);
       if(!d) return;
       const team = teamId ? teamsData.find(t=>t.id===teamId) : null;
@@ -2487,35 +2308,47 @@ function bindListEvents(){
   const myVehicleSelect = document.getElementById('my-vehicle-select');
   if(myVehicleSelect){
     myVehicleSelect.addEventListener('change', async (e)=>{
-      const teamId = e.target.value ? parseInt(e.target.value,10) : null;
-      const prev = [...myTeamIds];
-      const naam = teamId ? teamsData.find(t=>t.id===teamId).naam : null;
-      myTeamIds = teamId ? [teamId] : [];
+      const voertuigId = e.target.value || null;
+      const fase = occupancyFase;
+      const prev = myVoertuigen[fase];
+      const naam = voertuigId ? teamsData.find(t=>t.id===voertuigId).naam : null;
+      myVoertuigen = { ...myVoertuigen, [fase]: voertuigId };
       try{
-        await apiFetch('/api/my-team', { method:'PUT', body: JSON.stringify({ teamId }) });
+        await apiFetch('/api/mijn-voertuig', { method:'PUT', body: JSON.stringify({ datum: todayISO(), fase, voertuigId }) });
         teamsData = await apiFetch('/api/teams'); // bemanningslijsten verversen, anders lijkt het alsof er niets gebeurd is
-        showToast(naam ? 'Je zit nu in ' + naam : 'Voertuig gewist');
+        const myTeams = await apiFetch('/api/my-teams');
+        myTeamIds = myTeams.map(t=>t.id);
+        showToast(naam ? 'Je zit nu in ' + naam + ' (' + (fase==='levering'?'levering':'afhaling') + ')' : 'Voertuig gewist');
         render();
       }catch(err){
-        myTeamIds = prev;
+        myVoertuigen = { ...myVoertuigen, [fase]: prev };
         showToast(err.message);
       }
     });
   }
   const vehiclePanelToggle = document.getElementById('vehicle-panel-toggle');
   if(vehiclePanelToggle){
-    vehiclePanelToggle.addEventListener('click', ()=>{
+    vehiclePanelToggle.addEventListener('click', async ()=>{
       vehiclePanelOpen = !vehiclePanelOpen;
+      if(vehiclePanelOpen) await loadOccupancyData();
       render();
     });
   }
+  document.querySelectorAll('[data-occ-fase]').forEach(pill=>{
+    pill.addEventListener('click', async ()=>{
+      occupancyFase = pill.dataset.occFase;
+      await loadOccupancyData();
+      render();
+    });
+  });
   document.querySelectorAll('[data-occ-save]').forEach(btn=>{
     btn.addEventListener('click', async (e)=>{
       e.preventDefault();
       const details = btn.closest('[data-occ-team]');
-      const memberIds = Array.from(details.querySelectorAll('.occ-cb:checked')).map(cb=>parseInt(cb.value,10));
+      const gebruikerIds = Array.from(details.querySelectorAll('.occ-cb:checked')).map(cb=>parseInt(cb.value,10));
       try{
-        await apiFetch('/api/teams/' + btn.dataset.occSave, { method:'PUT', body: JSON.stringify({ memberIds }) });
+        await apiFetch('/api/voertuig-bemanning', { method:'PUT', body: JSON.stringify({ voertuigId: btn.dataset.occSave, datum: todayISO(), fase: occupancyFase, gebruikerIds }) });
+        await loadOccupancyData();
         teamsData = await apiFetch('/api/teams');
         showToast('Bemanning opgeslagen');
         render();
@@ -2525,117 +2358,12 @@ function bindListEvents(){
 }
 
 // ---------- NEW DELIVERY FORM ----------
-function renderNewForm(){
-  return `
-  ${currentUser && currentUser.rol === 'admin' ? `
-  <div class="section">
-    <h3>Planning importeren</h3>
-    <div style="font-size:12.5px;color:var(--text-dim);margin-bottom:10px;line-height:1.4">
-      Upload een Excel-bestand (.xlsx) met de kolommen: Delivery Date, Drop Off, Collection Date, Collection, Customer Name, Mobile, Email, Delivery Address 1, Delivery Town, Delivery Postcode, Item, Balance, Surface.<br>
-      Heb je een boekingsnummer-kolom (bv. "Booking Number", "Boekingsnummer", "Reference")? Dan wordt een bestaande boeking automatisch bijgewerkt in plaats van dubbel aangemaakt bij een herimport.<br>
-      Werk je in Numbers? Exporteer eerst via <b>Bestand → Exporteer naar → Excel</b>.
-    </div>
-    <input type="file" accept=".xlsx" id="import-file" style="display:none">
-    <button class="btn secondary" id="import-btn">Excel-bestand kiezen</button>
-    <div id="import-result" style="margin-top:10px;font-size:13px"></div>
-  </div>
-  ` : ''}
-  <div class="section">
-    <h3>Klant &amp; adres</h3>
-    <div class="field"><label>Naam klant</label><input type="text" id="f-klant" placeholder="Bv. Familie Peeters"></div>
-    <div class="field"><label>Telefoon</label><input type="tel" id="f-telefoon" placeholder="04xx xx xx xx"></div>
-    <div class="field"><label>E-mail</label><input type="text" id="f-email" placeholder="optioneel"></div>
-    <div class="field"><label>Adres (voor Waze)</label><input type="text" id="f-adres" placeholder="Straat, nr, gemeente"></div>
-  </div>
-  <div class="section">
-    <h3>Levering</h3>
-    <div class="two-col">
-      <div class="field"><label>Leverdatum</label><input type="date" id="f-datum" value="${todayISO()}"></div>
-      <div class="field"><label>Tijdslot</label><input type="text" id="f-tijdslot" placeholder="Bv. 09:00 - 10:00"></div>
-    </div>
-    <div class="field"><label>Artikelen</label><textarea id="f-artikelen" placeholder="Bv. Springkasteel Draak XL + suikerspinmachine"></textarea></div>
-    <div class="field">
-      <label>Ondergrond</label>
-      <select id="f-ondergrond">
-        <option value="">Onbekend</option>
-        <option value="Op gras">Op gras</option>
-        <option value="Harde ondergrond">Harde ondergrond</option>
-      </select>
-    </div>
-  </div>
-  <div class="section">
-    <h3>Afhaling</h3>
-    <div class="two-col">
-      <div class="field"><label>Afhaaldatum</label><input type="date" id="f-afhaaldatum"></div>
-      <div class="field"><label>Voorziene afhaaltijd</label><select id="f-afhaaltijd">${timeOptionsHtml('')}</select></div>
-    </div>
-  </div>
-  <button class="btn" id="save-new">Levering toevoegen</button>
-  `;
-}
-function bindNewFormEvents(){
-  const importBtn = document.getElementById('import-btn');
-  if(importBtn){
-    importBtn.addEventListener('click', ()=> document.getElementById('import-file').click());
-    document.getElementById('import-file').addEventListener('change', async (e)=>{
-      const file = e.target.files[0];
-      if(!file) return;
-      const resultEl = document.getElementById('import-result');
-      resultEl.textContent = 'Bezig met importeren...';
-      try{
-        const fileBase64 = await new Promise((resolve, reject)=>{
-          const reader = new FileReader();
-          reader.onload = ()=> resolve(reader.result.split(',')[1]);
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-        const r = await apiFetch('/api/import', { method:'POST', body: JSON.stringify({ fileBase64 }) });
-        let msg = r.imported + ' nieuwe levering(en) toegevoegd';
-        if(r.updated) msg += ', ' + r.updated + ' bestaande bijgewerkt (via boekingsnummer)';
-        msg += '.';
-        if(r.skipped && r.skipped.length){
-          msg += ' ' + r.skipped.length + ' rij(en) overgeslagen: ' + r.skipped.map(s=>'rij '+s.rij+' ('+s.reden+')').join(', ');
-        }
-        resultEl.textContent = msg;
-        showToast('Import voltooid');
-        await loadDeliveries();
-      }catch(err){
-        resultEl.textContent = 'Import mislukt: ' + err.message;
-      }
-      e.target.value = '';
-    });
-  }
-
-  document.getElementById('save-new').addEventListener('click', async ()=>{
-    const klant = document.getElementById('f-klant').value.trim();
-    const adres = document.getElementById('f-adres').value.trim();
-    if(!klant || !adres){ showToast('Naam en adres zijn verplicht'); return; }
-    const d = emptyDelivery();
-    d.klant = klant;
-    d.telefoon = document.getElementById('f-telefoon').value.trim();
-    d.email = document.getElementById('f-email').value.trim();
-    d.adres = adres;
-    d.datum = document.getElementById('f-datum').value || todayISO();
-    d.tijdslot = document.getElementById('f-tijdslot').value.trim();
-    d.artikelen = document.getElementById('f-artikelen').value.trim();
-    d.afhaaldatum = document.getElementById('f-afhaaldatum').value;
-    d.afhaaltijd = document.getElementById('f-afhaaltijd').value;
-    d.ondergrond = document.getElementById('f-ondergrond').value;
-    if(d.ondergrond === 'Harde ondergrond') d.plaatsing.valmatten = true;
-    d.plaatsing.tijdstip = d.afhaaltijd;
-    deliveries.push(d);
-    try{
-      await saveDeliveries(d);
-      showToast('Levering toegevoegd');
-      setView('detail', d.id);
-    }catch(err){
-      deliveries.pop();
-      showToast(err.message);
-    }
-  });
-}
-
 // ---------- DETAIL VIEW ----------
+// LET OP: er is bewust GEEN "Nieuwe levering aanmaken"-scherm meer (vroeger de
+// "Nieuw"-tab, met o.a. een Excel-planningimport). Deze app is puur voor
+// UITVOERING van boekingen die al op het boekingsplatform bestaan — een
+// nieuwe reservatie aanmaken kan voortaan enkel daar (zie ook /api/deliveries
+// in server.js, dat geen aanmaak-/verwijder-route meer heeft).
 function wazeUrl(adres){
   return 'https://waze.com/ul?q=' + encodeURIComponent(adres) + '&navigate=yes';
 }
@@ -2744,7 +2472,7 @@ function renderDetail(d){
     <h3>Leverdatum &amp; levertijd</h3>
     <div class="two-col">
       <div class="field"><label>Leverdatum</label><input type="date" id="edit-datum" value="${d.datum||''}"></div>
-      <div class="field"><label>Tijdslot</label><input type="text" id="edit-tijdslot" value="${escapeHtml(d.tijdslot||'')}" placeholder="Bv. 09:00 - 10:00"></div>
+      <div class="field"><label>Tijdslot</label><select id="edit-tijdslot">${timeOptionsHtml(d.tijdslot||'')}</select></div>
     </div>
   </div>
   ` : ''}
@@ -2842,7 +2570,6 @@ function renderDetail(d){
   <div class="stack">
     <button class="btn secondary" id="save-checklist">Gegevens opslaan</button>
     <button class="btn secondary" id="make-pdf">Plaatsingsverslag maken (PDF)</button>
-    ${currentUser.rol === 'admin' ? `<button class="btn danger" id="delete-delivery">Reservatie verwijderen</button>` : ''}
   </div>
   `;
 }
@@ -3030,7 +2757,7 @@ function bindDetailEvents(d){
   function parseAssignValue(val){
     if(!val) return null;
     const [type, idStr] = val.split(':');
-    const id = parseInt(idStr,10);
+    const id = type === 'team' ? idStr : parseInt(idStr,10);
     if(type === 'team'){
       const team = teamsData.find(t => t.id === id);
       return team ? { id: team.id, naam: team.naam, type: 'team' } : null;
@@ -3188,7 +2915,7 @@ function bindDetailEvents(d){
     try{
       for(const f of files.slice(0, Math.max(0, 8 - existing.length))){
         const dataUrl = await resizeImageFile(f);
-        await addPhotoRemote(d.id, f.name, dataUrl);
+        await addPhotoRemote(d.id, f.name, dataUrl, checklistMode);
       }
     }catch(err){ showToast(err.message); }
     e.target.value = '';
@@ -3200,14 +2927,6 @@ function bindDetailEvents(d){
     await collectAndSave(d, false);
     await generateAndOfferPdf(d);
   });
-
-  const deleteBtn = document.getElementById('delete-delivery');
-  if(deleteBtn){
-    deleteBtn.addEventListener('click', async ()=>{
-      const deleted = await requestDeleteDelivery(d.id, d.klant);
-      if(deleted) setView('list');
-    });
-  }
 
   const earlyConfirmPlaatsingBtn = document.getElementById('early-confirm-plaatsing');
   if(earlyConfirmPlaatsingBtn){
@@ -3322,13 +3041,11 @@ function collectFromForm(d){
   const betalingActive = document.querySelector('#betaling-pills .pill.active');
   d.betaling.status = betalingActive ? betalingActive.dataset.val : '';
   d.betaling.opmerking = document.getElementById('betaling-opmerking').value;
-  if(['reeds-voldaan','voldaan-cash','voldaan-overschrijving'].includes(d.betaling.status)){
-    if(d.oorspronkelijkBedrag == null) d.oorspronkelijkBedrag = d.bedrag; // origineel bedrag eenmalig bewaren, niet overschrijven bij een volgende opslag
-    d.bedrag = '0';
-  } else if(d.oorspronkelijkBedrag != null){
-    d.bedrag = d.oorspronkelijkBedrag; // status niet (meer) "voldaan": oorspronkelijk bedrag herstellen
-    d.oorspronkelijkBedrag = null;
-  }
+  // Let op: "te ontvangen bedrag" wordt niet langer lokaal op '0' gezet bij
+  // "voldaan" — het bedrag komt nu rechtstreeks (en enkel-lezend) uit de
+  // boeking op het boekingsplatform, dus dat blijft altijd het echte bedrag
+  // tonen. De betaalstatus hierboven is puur een aantekening voor de
+  // chauffeur/Jonas, los van de officiële facturatie.
 
   d.afhaling.valmattenTerug = checkedVal('chk-valmatten-terug');
   d.afhaling.kabelsTerug = checkedVal('chk-kabels-terug');
@@ -3510,7 +3227,8 @@ function dossierCardHtml(d){
     </select>`;
   const factuurStar = (currentUser.rol === 'admin' && d.betaling.status === 'factuur') ? `<span class="star-badge" title="Nog te factureren">★</span>` : '';
   const verzetBadge = d.afhaling.verzetAangevraagd ? `<span class="assign-badge other" style="background:rgba(217,164,65,0.18);color:var(--warn)">🔁 Verzet aangevraagd</span>` : '';
-  const deleteBtn = currentUser.rol === 'admin' ? `<span class="card-delete-btn" data-delete-id="${d.id}" data-delete-naam="${escapeHtml(d.klant||'')}" title="Verwijderen">✕</span>` : '';
+  // Reservaties verwijderen kan enkel nog op het boekingsplatform zelf.
+  const deleteBtn = '';
   const stamps = [];
   if(d.plaatsing.bevestigd && d.plaatsing.bevestigdOp) stamps.push('Geleverd: ' + fmtDateTime(d.plaatsing.bevestigdOp));
   if(d.afhaling.bevestigd && d.afhaling.bevestigdOp) stamps.push('Afgehaald: ' + fmtDateTime(d.afhaling.bevestigdOp));
@@ -3608,20 +3326,13 @@ function bindDossierEvents(){
       setView('detail', c.dataset.id);
     });
   });
-  document.querySelectorAll('.card-delete-btn').forEach(btn=>{
-    btn.addEventListener('click', async (e)=>{
-      e.stopPropagation();
-      const deleted = await requestDeleteDelivery(btn.dataset.deleteId, btn.dataset.deleteNaam);
-      if(deleted) render();
-    });
-  });
   document.querySelectorAll('.card-quick-assign').forEach(sel=>{
     sel.addEventListener('click', (e)=> e.stopPropagation());
     sel.addEventListener('change', async (e)=>{
       e.stopPropagation();
       const id = sel.dataset.quickId;
       const field = sel.dataset.quickField;
-      const teamId = sel.value ? parseInt(sel.value,10) : null;
+      const teamId = sel.value || null;
       const d = getDelivery(id);
       if(!d) return;
       const team = teamId ? teamsData.find(t=>t.id===teamId) : null;
@@ -3683,7 +3394,7 @@ async function showApp(){
 
 // ---------- Automatisch verversen op de achtergrond ----------
 let autoRefreshTimer = null;
-const AUTOREFRESH_EXCLUDED_VIEWS = ['new']; // enkel het "Nieuwe reservatie"-formulier slaan we altijd over
+const AUTOREFRESH_EXCLUDED_VIEWS = []; // geen enkel scherm meer heeft een aanmaakformulier om te "storen"
 function isTypingActive(){
   const el = document.activeElement;
   if(!el) return false;
