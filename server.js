@@ -257,8 +257,12 @@ app.post('/api/login', async (req, res) => {
 app.get('/api/me', auth, (req, res) => res.json({ user: req.user }));
 
 // ---------- Gebruikersbeheer (enkel admin) ----------
+// Let op: het beheer zelf (crewlid aanmaken/wijzigen, telefoon/opmerking) gebeurt
+// voortaan via de "Crew"-pagina op het boekingsplatform (Logistiek) — deze
+// endpoints blijven bestaan zodat de crew-app's eigen Instellingen-tab nog
+// werkt, en om achterwaarts compatibel te blijven.
 app.get('/api/users', auth, adminOnly, async (req, res) => {
-  const r = await pool.query('SELECT id,username,naam,rol,created_at FROM users ORDER BY naam');
+  const r = await pool.query('SELECT id,username,naam,rol,telefoon,opmerking,created_at FROM users ORDER BY naam');
   res.json(r.rows);
 });
 app.post('/api/users', auth, adminOnly, async (req, res) => {
@@ -281,6 +285,40 @@ app.delete('/api/users/:id', auth, adminOnly, async (req, res) => {
   await pool.query('DELETE FROM users WHERE id=$1', [req.params.id]);
   res.json({ ok: true });
 });
+
+// ============================================================
+// VOERTUIG-TOESTEL (vaste iPad-login per voertuig, los van crewleden)
+// ============================================================
+// Publieke (niet-ingelogde) lijst van voertuignamen — enkel nodig om in het
+// inlogscherm van voertuig.html een voertuig te kunnen kiezen. Toont bewust
+// geen toegangscodes of andere gevoelige info.
+app.get('/api/voertuigen-publiek', async (req, res) => {
+  const r = await pool.query('SELECT id, naam FROM voertuigen ORDER BY naam');
+  res.json(r.rows);
+});
+
+app.post('/api/device-login', async (req, res) => {
+  const { voertuigId, code } = req.body || {};
+  if (!voertuigId || !code) return res.status(400).json({ error: 'Kies een voertuig en vul de toegangscode in' });
+  const r = await pool.query('SELECT id, naam, toegangscode FROM voertuigen WHERE id = $1', [voertuigId]);
+  const voertuig = r.rows[0];
+  if (!voertuig || !voertuig.toegangscode || voertuig.toegangscode !== code) {
+    return res.status(401).json({ error: 'Ongeldige toegangscode' });
+  }
+  // Lang geldig (~10 jaar): dit toestel logt in principe maar één keer in en
+  // blijft dan permanent aangemeld, net zoals een kiosk-toestel.
+  const token = jwt.sign(
+    { type: 'device', voertuigId: voertuig.id, naam: voertuig.naam, rol: 'device' },
+    JWT_SECRET,
+    { expiresIn: '3650d' }
+  );
+  res.json({ token, voertuig: { id: voertuig.id, naam: voertuig.naam } });
+});
+
+function deviceOnly(req, res, next) {
+  if (req.user.type !== 'device') return res.status(403).json({ error: 'Enkel voor een voertuig-toestel' });
+  next();
+}
 
 // ============================================================
 // LEVERINGEN — gelezen/geschreven rechtstreeks op boekingen/klanten/
@@ -412,6 +450,35 @@ app.get('/api/deliveries', auth, async (req, res) => {
     haalVoertuigenPerNaamOp(),
   ]);
   res.json(rows.map(row => rijNaarLevering(row, voertuigenPerNaam)));
+});
+
+// Alleen-lezen dagoverzicht voor het vaste voertuig-scherm (voertuig.html) —
+// geen enkele wijziging/checklist/foto is hier mogelijk, dat blijft voorbehouden
+// aan een crewlid die persoonlijk inlogt. Puur "wat moet dit voertuig vandaag
+// doen" + de meldingengeschiedenis.
+app.get('/api/device/vandaag', auth, deviceOnly, async (req, res) => {
+  const vandaag = vandaagIso();
+  const [{ rows }, voertuigenPerNaam] = await Promise.all([
+    pool.query(DELIVERIES_SELECT, [GEPLANDE_STATUSSEN]),
+    haalVoertuigenPerNaamOp(),
+  ]);
+  const alles = rows.map(row => rijNaarLevering(row, voertuigenPerNaam));
+  const naamLower = (req.user.naam || '').toLowerCase();
+  const leveringen = alles
+    .filter(d => d.datum === vandaag && d.toegewezenAan && d.toegewezenAan.naam && d.toegewezenAan.naam.toLowerCase() === naamLower)
+    .sort((a, b) => (a.tijdslot || '').localeCompare(b.tijdslot || ''));
+  const afhalingen = alles
+    .filter(d => (d.afhaaldatum || d.datum) === vandaag && d.toegewezenAanAfhaling && d.toegewezenAanAfhaling.naam && d.toegewezenAanAfhaling.naam.toLowerCase() === naamLower)
+    .sort((a, b) => (a.afhaaltijd || '').localeCompare(b.afhaaltijd || ''));
+  res.json({ voertuig: req.user.naam, datum: vandaag, leveringen, afhalingen });
+});
+
+app.get('/api/device/meldingen', auth, deviceOnly, async (req, res) => {
+  const r = await pool.query(
+    'SELECT id, titel, bericht, aangemaakt_op FROM voertuig_meldingen WHERE voertuig_id=$1 ORDER BY aangemaakt_op DESC LIMIT 50',
+    [req.user.voertuigId]
+  );
+  res.json(r.rows);
 });
 
 // LET OP: bewust GEEN "levering aanmaken" endpoint meer — deze app is puur
@@ -679,10 +746,14 @@ app.post('/api/push/subscribe', auth, async (req, res) => {
   if (!sub.endpoint || !sub.keys || !sub.keys.p256dh || !sub.keys.auth) {
     return res.status(400).json({ error: 'Ongeldig abonnement' });
   }
+  // Een voertuig-toestel (zie deviceOnly) abonneert op naam van het VOERTUIG
+  // i.p.v. een gebruiker — zo kan het platform straks rechtstreeks naar dat
+  // voertuig pushen, los van wie er die dag in rijdt.
+  const isDevice = req.user.type === 'device';
   await pool.query(
-    `INSERT INTO push_subscriptions(user_id, endpoint, p256dh, auth) VALUES ($1,$2,$3,$4)
-     ON CONFLICT (endpoint) DO UPDATE SET user_id=$1, p256dh=$3, auth=$4`,
-    [req.user.id, sub.endpoint, sub.keys.p256dh, sub.keys.auth]
+    `INSERT INTO push_subscriptions(user_id, voertuig_id, endpoint, p256dh, auth) VALUES ($1,$2,$3,$4,$5)
+     ON CONFLICT (endpoint) DO UPDATE SET user_id=$1, voertuig_id=$2, p256dh=$4, auth=$5`,
+    [isDevice ? null : req.user.id, isDevice ? req.user.voertuigId : null, sub.endpoint, sub.keys.p256dh, sub.keys.auth]
   );
   res.json({ ok: true });
 });
@@ -839,21 +910,23 @@ app.put('/api/voertuig-bemanning', auth, adminOnly, async (req, res) => {
 });
 
 // ---------- Materiaal-info per product — enkel uitlezen (platform beheert dit) ----------
-// Veldnamen blijven dezelfde als voorheen zodat de bestaande laadlijst-logica
-// in de frontend ongewijzigd kan blijven; niet elk veld heeft een tegenhanger
-// op het platform (zie kolomcommentaar) — die komen dus leeg/null terug.
+// Sinds migratie 024 (platform) heeft "producten" ook weer de velden die
+// vroeger enkel in de crew-app's eigen tabel zaten (aantal_motors,
+// verlengkabel_standaard/dubbel, overige_benodigdheden, materiaal_opmerking)
+// — dus niet langer hardgecodeerd NULL, gewoon rechtstreeks meelezen.
 app.get('/api/producten', auth, async (req, res) => {
   const r = await pool.query(`
     SELECT naam,
-           NULL::text AS opmerking,
+           materiaal_opmerking AS opmerking,
            motor_type AS "motorType",
-           NULL::int AS "aantalMotors",
-           NULL::int AS "verlengkabelStandaard",
-           NULL::int AS "verlengkabelDubbel",
+           aantal_motors AS "aantalMotors",
+           verlengkabel_standaard AS "verlengkabelStandaard",
+           verlengkabel_dubbel AS "verlengkabelDubbel",
            aantal_piketten AS pinnen,
            aantal_zandzakken AS zandzakken,
            aantal_valmatten AS valmatten,
-           NULL::text AS overige
+           overige_benodigdheden AS overige,
+           gemiddelde_opsteltijd_minuten AS "opsteltijdMinuten"
     FROM producten ORDER BY naam
   `);
   res.json(r.rows);
