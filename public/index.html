@@ -693,6 +693,7 @@ function emptyDelivery(){
     handmatigeVolgordeLevering: null, // getal = manueel bepaalde positie bij "Te leveren"
     handmatigeVolgordeAfhaling: null, // getal = manueel bepaalde positie bij "Op te halen" — apart veld, onafhankelijk van levering
     geo: null, // { lat, lng, voorAdres } — cache van de laatst opgezochte locatie voor dit adres
+    oorspronkelijkBedrag: null, // bewaart het bedrag van vóór "voldaan", zodat dat nooit verloren gaat als het saldo op 0 gezet wordt
     plaatsing: {
       correctGeplaatst: false,
       bevestiging: '', // pinnen | zandzakken | verankering | geen
@@ -2782,6 +2783,7 @@ function renderDetail(d){
   <div class="section">
     <h3>Betaling</h3>
     ${d.bedrag ? `<div style="font-size:13px;color:var(--text-dim);margin-bottom:10px">Te ontvangen: <b style="color:var(--text)">€ ${escapeHtml(d.bedrag)}</b></div>` : ''}
+    ${(!d.bedrag && d.oorspronkelijkBedrag) ? `<div style="font-size:13px;color:var(--text-dim);margin-bottom:10px">✓ Voldaan — oorspronkelijk bedrag: € ${escapeHtml(d.oorspronkelijkBedrag)}</div>` : ''}
     <div class="pillgroup" id="betaling-pills">
       ${pill('reeds-voldaan','Reeds voldaan', d.betaling.status)}
       ${pill('voldaan-cash','Voldaan (cash)', d.betaling.status)}
@@ -3320,6 +3322,13 @@ function collectFromForm(d){
   const betalingActive = document.querySelector('#betaling-pills .pill.active');
   d.betaling.status = betalingActive ? betalingActive.dataset.val : '';
   d.betaling.opmerking = document.getElementById('betaling-opmerking').value;
+  if(['reeds-voldaan','voldaan-cash','voldaan-overschrijving'].includes(d.betaling.status)){
+    if(d.oorspronkelijkBedrag == null) d.oorspronkelijkBedrag = d.bedrag; // origineel bedrag eenmalig bewaren, niet overschrijven bij een volgende opslag
+    d.bedrag = '0';
+  } else if(d.oorspronkelijkBedrag != null){
+    d.bedrag = d.oorspronkelijkBedrag; // status niet (meer) "voldaan": oorspronkelijk bedrag herstellen
+    d.oorspronkelijkBedrag = null;
+  }
 
   d.afhaling.valmattenTerug = checkedVal('chk-valmatten-terug');
   d.afhaling.kabelsTerug = checkedVal('chk-kabels-terug');
@@ -3396,6 +3405,7 @@ async function generateAndOfferPdf(d){
   line('Artikelen', d.artikelen);
   if(d.ondergrond) line('Ondergrond', normalizeOndergrond(d.ondergrond));
   if(d.bedrag) line('Te ontvangen', '€ ' + d.bedrag);
+  if(!d.bedrag && d.oorspronkelijkBedrag) line('Voldaan — oorspronkelijk bedrag', '€ ' + d.oorspronkelijkBedrag);
   y += 2;
 
   heading('Afhaling');
