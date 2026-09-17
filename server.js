@@ -392,6 +392,7 @@ const DELIVERIES_SELECT = `
          COALESCE(l.afhaling_voltooid, false) AS afhaling_voltooid,
          l.plaatsing_correct, l.plaatsing_bevestiging, l.plaatsing_valmatten, l.plaatsing_verlengkabel,
          l.plaatsing_aantal_kabels, l.plaatsing_aantal_zandzakken, l.plaatsing_netjes, l.plaatsing_opmerkingen,
+         l.plaatsing_grasrobot_uit, l.plaatsing_handtekening, l.plaatsing_handtekening_naam, l.plaatsing_handtekening_op,
          COALESCE(l.plaatsing_bevestigd, false) AS plaatsing_bevestigd, l.plaatsing_bevestigd_op,
          l.afhaling_valmatten_terug, l.afhaling_kabels_terug, l.afhaling_bevestiging_terug,
          l.afhaling_nat_of_vuil, l.afhaling_reiniging_nodig, l.afhaling_opmerkingen,
@@ -458,6 +459,10 @@ function rijNaarLevering(row, voertuigenPerNaam) {
       aantalZandzakken: row.plaatsing_aantal_zandzakken != null ? String(row.plaatsing_aantal_zandzakken) : '',
       netjes: !!row.plaatsing_netjes,
       opmerkingen: row.plaatsing_opmerkingen || '',
+      grasrobotUit: !!row.plaatsing_grasrobot_uit,
+      handtekening: row.plaatsing_handtekening || '',
+      handtekeningNaam: row.plaatsing_handtekening_naam || '',
+      handtekeningOp: row.plaatsing_handtekening_op ? new Date(row.plaatsing_handtekening_op).toISOString() : '',
       tijdstip: '',
       bevestigd: !!row.plaatsing_bevestigd,
       bevestigdOp: row.plaatsing_bevestigd_op ? new Date(row.plaatsing_bevestigd_op).toISOString() : ''
@@ -613,6 +618,14 @@ app.put('/api/deliveries/:id', auth, async (req, res) => {
       plaatsing_aantal_zandzakken: naarIntOfNull(plaatsing.aantalZandzakken),
       plaatsing_netjes: naarBoolOfNull(plaatsing.netjes),
       plaatsing_opmerkingen: plaatsing.opmerkingen || null,
+      plaatsing_grasrobot_uit: naarBoolOfNull(plaatsing.grasrobotUit),
+      // Handtekening (base64 PNG) + naam ondertekenaar — de app stuurt bij elke
+      // opslag het volledige leveringsobject mee (incl. een reeds bestaande
+      // handtekening), dus dit is telkens gewoon dezelfde waarde herschrijven
+      // totdat er via het tekenscherm effectief een nieuwe bij komt.
+      plaatsing_handtekening: plaatsing.handtekening || null,
+      plaatsing_handtekening_naam: plaatsing.handtekeningNaam || null,
+      plaatsing_handtekening_op: plaatsing.handtekeningOp || null,
       plaatsing_bevestigd: !!plaatsing.bevestigd,
       plaatsing_bevestigd_op: plaatsing.bevestigdOp || null,
       afhaling_valmatten_terug: naarBoolOfNull(afhaling.valmattenTerug),
