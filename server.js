@@ -45,6 +45,42 @@ const pool = new Pool({
 
 const JWT_SECRET = process.env.JWT_SECRET || 'verander-deze-waarde';
 const SETUP_KEY = process.env.SETUP_KEY || 'verander-deze-waarde-ook';
+// Waarschuwing i.p.v. de app te laten weigeren op te starten — een bestaande
+// productie-omgeving zou anders plots niet meer opstarten (of, nog erger, als
+// we in plaats daarvan een WILLEKEURIGE waarde per opstart zouden gebruiken:
+// alle crewleden zouden dan bij elke herstart/deploy plots uitgelogd worden).
+// Maar met de standaardwaarde kan IEDEREEN die deze (publieke, open-source-
+// achtige) code kent zelf geldige inlogtokens vervalsen — dus toch best even
+// nakijken/instellen bij Render als dit hieronder verschijnt in de logs.
+if (!process.env.JWT_SECRET) console.warn('⚠️  JWT_SECRET niet ingesteld — gebruikt onveilige standaardwaarde. Zet dit bij Render (omgevingsvariabelen)!');
+if (!process.env.SETUP_KEY) console.warn('⚠️  SETUP_KEY niet ingesteld — gebruikt onveilige standaardwaarde. Zet dit bij Render (omgevingsvariabelen)!');
+
+// Eenvoudige, in-memory rate limiter — geen extra npm-package nodig (dat kan
+// hier niet getest worden). Enkel bedoeld om /api/login en /api/device-login
+// te beschermen tegen ongelimiteerd (bv. de numerieke voertuig-toegangscode)
+// afgaan/brute-forcen, niet als volwaardige productiebeveiliging. Telt per
+// (endpoint + IP) hoeveel POGINGEN er binnen het venster gebeurd zijn; enkel
+// mislukte pogingen tellen mee (een geslaagde login reset de teller niet
+// expliciet, maar telt zelf ook niet mee als "poging").
+const RATE_LIMIT_VENSTER_MS = 5 * 60 * 1000;
+const RATE_LIMIT_MAX_POGINGEN = 10;
+const rateLimitPogingen = new Map(); // sleutel -> [tijdstip, tijdstip, ...]
+function rateLimiter(naam) {
+  return (req, res, next) => {
+    const sleutel = `${naam}:${req.ip}`;
+    const nu = Date.now();
+    const pogingen = (rateLimitPogingen.get(sleutel) || []).filter((t) => nu - t < RATE_LIMIT_VENSTER_MS);
+    if (pogingen.length >= RATE_LIMIT_MAX_POGINGEN) {
+      return res.status(429).json({ error: 'Te veel mislukte pogingen — probeer het over enkele minuten opnieuw.' });
+    }
+    rateLimitPogingen.set(sleutel, pogingen);
+    res.locals.registreerMislukteInlogpoging = () => {
+      pogingen.push(nu);
+      rateLimitPogingen.set(sleutel, pogingen);
+    };
+    next();
+  };
+}
 
 async function initDb() {
   // Enkel de tabellen die uitsluitend van DEZE app zijn — alle boekings-/
@@ -60,6 +96,15 @@ async function initDb() {
       rol TEXT NOT NULL DEFAULT 'plaatser',
       created_at TIMESTAMPTZ DEFAULT now()
     );
+    -- Standaard voertuig van dit crewlid (ingesteld via de Crew-pagina op het
+    -- platform) — voor vaste voertuig-accounts (bv. de iPad in de camionette)
+    -- zodat /api/my-teams hieronder dat voertuig automatisch kan toewijzen i.p.v.
+    -- dat er elke dag manueel een voertuig gekozen moet worden. Geen echte FK
+    -- (net als elders tussen deze twee apps): verwijst naar voertuigen.id op het
+    -- platform. ADD COLUMN IF NOT EXISTS omdat deze app geen migratiesysteem
+    -- heeft — CREATE TABLE IF NOT EXISTS hierboven is een no-op zodra de tabel
+    -- al bestaat.
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS standaard_voertuig_id UUID;
     CREATE TABLE IF NOT EXISTS locations(
       user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
       lat DOUBLE PRECISION NOT NULL,
@@ -242,13 +287,13 @@ app.post('/api/setup', async (req, res) => {
 });
 
 // ---------- Login ----------
-app.post('/api/login', async (req, res) => {
+app.post('/api/login', rateLimiter('login'), async (req, res) => {
   const { username, password } = req.body || {};
   const r = await pool.query('SELECT * FROM users WHERE username=$1', [username]);
-  if (r.rows.length === 0) return res.status(401).json({ error: 'Onbekende gebruiker' });
+  if (r.rows.length === 0) { res.locals.registreerMislukteInlogpoging(); return res.status(401).json({ error: 'Onbekende gebruiker' }); }
   const user = r.rows[0];
   const ok = await bcrypt.compare(password || '', user.password_hash);
-  if (!ok) return res.status(401).json({ error: 'Verkeerd wachtwoord' });
+  if (!ok) { res.locals.registreerMislukteInlogpoging(); return res.status(401).json({ error: 'Verkeerd wachtwoord' }); }
   res.json({
     token: signToken(user),
     user: { id: user.id, username: user.username, naam: user.naam, rol: user.rol }
@@ -297,12 +342,13 @@ app.get('/api/voertuigen-publiek', async (req, res) => {
   res.json(r.rows);
 });
 
-app.post('/api/device-login', async (req, res) => {
+app.post('/api/device-login', rateLimiter('device-login'), async (req, res) => {
   const { voertuigId, code } = req.body || {};
   if (!voertuigId || !code) return res.status(400).json({ error: 'Kies een voertuig en vul de toegangscode in' });
   const r = await pool.query('SELECT id, naam, toegangscode FROM voertuigen WHERE id = $1', [voertuigId]);
   const voertuig = r.rows[0];
   if (!voertuig || !voertuig.toegangscode || voertuig.toegangscode !== code) {
+    res.locals.registreerMislukteInlogpoging();
     return res.status(401).json({ error: 'Ongeldige toegangscode' });
   }
   // Lang geldig (~10 jaar): dit toestel logt in principe maar één keer in en
@@ -624,7 +670,7 @@ app.put('/api/deliveries/:id', auth, async (req, res) => {
 // ---------- Foto's (plaatsing/afhaling) ----------
 app.get('/api/deliveries/:id/photos', auth, async (req, res) => {
   const r = await pool.query(
-    `SELECT lf.id, lf.naam, lf.data_url AS "dataUrl" FROM leveringen_fotos lf
+    `SELECT lf.id, lf.naam, lf.fase, lf.data_url AS "dataUrl" FROM leveringen_fotos lf
      JOIN leveringen l ON l.id = lf.leveringen_id
      WHERE l.boeking_id = $1 ORDER BY lf.id`,
     [req.params.id]
@@ -821,12 +867,45 @@ app.get('/api/teams', auth, async (req, res) => {
 // Voertuig(en) van de ingelogde gebruiker voor VANDAAG, per fase — gebruikt
 // om her en der (bv. "jouw voertuig"-markering) te tonen of iets voor jou is.
 app.get('/api/my-teams', auth, async (req, res) => {
-  const r = await pool.query(
+  const datum = vandaagIso();
+  let r = await pool.query(
     `SELECT vb.voertuig_id AS id, v.naam, vb.fase
      FROM voertuig_bemanning vb JOIN voertuigen v ON v.id = vb.voertuig_id
      WHERE vb.gebruiker_id = $1 AND vb.datum = $2`,
-    [req.user.id, vandaagIso()]
+    [req.user.id, datum]
   );
+  // Nog HELEMAAL geen bemanning vandaag (geen enkele fase)? Dan het "standaard
+  // voertuig" van dit crewlid (ingesteld via de Crew-pagina op het platform,
+  // bedoeld voor vaste voertuig-accounts zoals de iPad in de camionette)
+  // automatisch toewijzen voor zowel levering als afhaling. Dit endpoint wordt
+  // bij elke app-start aangeroepen (i.t.t. /api/login, dat door het 30 dagen
+  // geldige token soms wekenlang niet opnieuw gebeurt), dus dit is de juiste
+  // plek om dit "elke dag opnieuw" te laten gebeuren. Enkel bij HELEMAAL niets
+  // — zo overschrijft dit nooit een handmatige wijziging via "Wijzig van
+  // wagen", ook niet gedeeltelijk (bv. enkel levering al manueel gezet).
+  if (r.rows.length === 0) {
+    const { rows: userRows } = await pool.query('SELECT standaard_voertuig_id FROM users WHERE id = $1', [req.user.id]);
+    const standaardVoertuigId = userRows[0] && userRows[0].standaard_voertuig_id;
+    if (standaardVoertuigId) {
+      try {
+        await pool.query(
+          `INSERT INTO voertuig_bemanning (voertuig_id, gebruiker_id, gebruiker_naam, datum, fase)
+           SELECT $1, $2, $3, $4, fase FROM (VALUES ('levering'), ('afhaling')) AS f(fase)
+           ON CONFLICT (gebruiker_id, datum, fase) DO NOTHING`,
+          [standaardVoertuigId, req.user.id, req.user.naam, datum]
+        );
+        r = await pool.query(
+          `SELECT vb.voertuig_id AS id, v.naam, vb.fase
+           FROM voertuig_bemanning vb JOIN voertuigen v ON v.id = vb.voertuig_id
+           WHERE vb.gebruiker_id = $1 AND vb.datum = $2`,
+          [req.user.id, datum]
+        );
+      } catch (e) {
+        // Standaard voertuig verwijderd o.i.d. — gewoon negeren, dan kiest het
+        // crewlid manueel zoals voorheen.
+      }
+    }
+  }
   res.json(r.rows);
 });
 
