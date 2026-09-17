@@ -83,6 +83,13 @@ h1,h2,h3,.label-font{
   align-items:center;
   justify-content:space-between;
 }
+.voertuig-banner{
+  background:var(--accent);color:#fff;
+  padding:8px 16px;font-size:13px;font-weight:600;
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  cursor:pointer;
+}
+.voertuig-banner .wijzig{font-size:12px;font-weight:600;text-decoration:underline;white-space:nowrap;}
 .topbar .brand{
   font-family:'Barlow Condensed',sans-serif;
   font-weight:700;
@@ -148,11 +155,11 @@ main{flex:1;padding:16px;}
   padding:10px 12px;border-radius:var(--radius);
   margin-bottom:12px;
 }
-.reorder-row{display:flex;gap:6px;margin-top:8px;}
+.reorder-row{display:flex;gap:10px;margin-top:8px;}
 .reorder-btn{
   background:var(--panel-alt);border:1px solid var(--line);color:var(--text-dim);
-  width:30px;height:26px;border-radius:var(--radius);
-  display:flex;align-items:center;justify-content:center;font-size:11px;cursor:pointer;
+  width:42px;height:40px;border-radius:var(--radius);
+  display:flex;align-items:center;justify-content:center;font-size:13px;cursor:pointer;
 }
 .reorder-btn:active{background:var(--line);}
 .star-badge{color:var(--warn);font-size:14px;}
@@ -380,6 +387,12 @@ button{font-family:'Inter',sans-serif;}
   display:flex;align-items:center;justify-content:center;
   font-size:12px;cursor:pointer;
 }
+.photo-thumb .fase-badge{
+  position:absolute;bottom:0;left:0;right:0;
+  background:rgba(0,0,0,0.55);color:#fff;
+  font-size:10px;font-weight:600;text-align:center;
+  padding:2px 0;text-transform:uppercase;letter-spacing:.02em;
+}
 .add-photo{
   aspect-ratio:1;border-radius:var(--radius);
   border:1.5px dashed var(--line);
@@ -399,7 +412,7 @@ button{font-family:'Inter',sans-serif;}
   font-size:13px;font-weight:600;z-index:50;
   opacity:0;pointer-events:none;transition:opacity .2s, bottom .2s;
 }
-.toast.show{opacity:1;bottom:100px;}
+.toast.show{opacity:1;bottom:100px;pointer-events:auto;cursor:pointer;}
 
 .stack{display:flex;flex-direction:column;gap:10px;}
 .two-col{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
@@ -528,6 +541,7 @@ button{font-family:'Inter',sans-serif;}
     </div>
     <div id="topbarAction"></div>
   </div>
+  <div id="voertuig-banner" class="voertuig-banner" style="display:none"></div>
   <main id="main"></main>
   <div class="tabbar">
     <button data-tab="list" class="tab-btn">
@@ -581,7 +595,15 @@ async function apiFetch(path, opts){
   opts = opts || {};
   const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
   if(authToken) headers['Authorization'] = 'Bearer ' + authToken;
-  const res = await fetch(path, Object.assign({}, opts, { headers }));
+  let res;
+  try{
+    res = await fetch(path, Object.assign({}, opts, { headers }));
+  }catch(netErr){
+    // fetch() zelf gooit (i.p.v. een gewone foute response) bij geen netwerk/
+    // slecht bereik — dat gaf voorheen de rauwe, voor een chauffeur onbegrijpelijke
+    // browserfout ("Failed to fetch") te zien. Niets is hier al opgeslagen.
+    throw new Error('Geen internetverbinding — controleer je netwerk en probeer opnieuw.');
+  }
   if(res.status === 401 && path !== '/api/login' && path !== '/api/setup'){
     doLogout();
     throw new Error('Sessie verlopen, log opnieuw in');
@@ -662,7 +684,31 @@ function showToast(msg){
   t.textContent = msg;
   t.classList.add('show');
   clearTimeout(showToast._t);
-  showToast._t = setTimeout(()=> t.classList.remove('show'), 2200);
+  // Een lange melding (bv. de uitleg bij een mislukte foto: "Zet op dit
+  // toestel Instellingen > Camera > ...") stond hier vroeger altijd exact
+  // 2200ms, dus die was in de praktijk vaak al weg vóór iemand ze uitgelezen
+  // had. Langere tekst krijgt hierdoor meer tijd; tikken op de melding zelf
+  // sluit ze meteen (voor als iemand toch al klaar is met lezen).
+  const duur = Math.min(9000, Math.max(2200, msg.length * 70));
+  showToast._t = setTimeout(()=> t.classList.remove('show'), duur);
+  t.onclick = () => { clearTimeout(showToast._t); t.classList.remove('show'); };
+}
+// Zet een knop tijdens het opslaan op "Bezig..." en disabled — zonder dit
+// leek een druk op bv. "Levering bevestigen" op een trage verbinding een
+// paar seconden niets te doen, waardoor een chauffeur al eens een tweede keer
+// tikte (en zo een dubbele opslag verstuurde). Altijd de knop terugzetten,
+// ook als fn() faalt (de aanroeper toont dan zelf de foutmelding).
+async function withBusy(btn, label, fn){
+  if(!btn) return fn();
+  const origLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = label || 'Bezig...';
+  try{
+    return await fn();
+  } finally {
+    btn.disabled = false;
+    btn.textContent = origLabel;
+  }
 }
 function escapeHtml(s){
   return (s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -2316,8 +2362,9 @@ function bindListEvents(){
       try{
         await apiFetch('/api/mijn-voertuig', { method:'PUT', body: JSON.stringify({ datum: todayISO(), fase, voertuigId }) });
         teamsData = await apiFetch('/api/teams'); // bemanningslijsten verversen, anders lijkt het alsof er niets gebeurd is
-        const myTeams = await apiFetch('/api/my-teams');
+        myTeams = await apiFetch('/api/my-teams');
         myTeamIds = myTeams.map(t=>t.id);
+        updateVoertuigBanner();
         showToast(naam ? 'Je zit nu in ' + naam + ' (' + (fase==='levering'?'levering':'afhaling') + ')' : 'Voertuig gewist');
         render();
       }catch(err){
@@ -2644,8 +2691,11 @@ async function refreshPhotoGrid(id){
   const grid = document.getElementById('photos-grid');
   if(!grid) return;
   const photos = await loadPhotos(id);
+  // Label elke foto met "Levering"/"Afhaling" — bij een dossier met beide
+  // fases (levering en later afhaling) stonden alle foto's hier voorheen
+  // gewoon door elkaar, zonder dat je kon zien welke bij welk bezoek horen.
   grid.innerHTML = photos.map((p)=>`
-    <div class="photo-thumb"><img src="${p.dataUrl}"><div class="rm" data-id="${p.id}">✕</div></div>
+    <div class="photo-thumb"><img src="${p.dataUrl}"><div class="rm" data-id="${p.id}">✕</div><div class="fase-badge">${p.fase === 'afhaling' ? 'Afhaling' : 'Levering'}</div></div>
   `).join('') + '<div class="add-photo" id="add-photo-btn">+</div>';
   document.getElementById('add-photo-btn').addEventListener('click', ()=> document.getElementById('photo-input').click());
   grid.querySelectorAll('.rm').forEach(btn=>{
@@ -2659,19 +2709,63 @@ async function refreshPhotoGrid(id){
   });
 }
 
+function tekenOpCanvas(bron, maxWidth){
+  const scale = Math.min(1, maxWidth / bron.width);
+  const w = Math.round(bron.width * scale) || 1;
+  const h = Math.round(bron.height * scale) || 1;
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  canvas.getContext('2d').drawImage(bron, 0, 0, w, h);
+  return canvas;
+}
+
+// Steekproef van een paar pixels (hoeken + midden) i.p.v. het hele beeld
+// uitlezen — zijn die allemaal exact dezelfde kleur, dan is het zo goed als
+// zeker een blanco/mislukt beeld, geen gewone effen-witte foto (die komt in
+// de praktijk niet voor bij deze foto's van geplaatste kastelen).
+function canvasLijktBlanco(canvas){
+  const w = canvas.width, h = canvas.height;
+  if(!w || !h) return true;
+  const ctx = canvas.getContext('2d');
+  const punten = [[0,0],[w-1,0],[0,h-1],[w-1,h-1],[Math.floor(w/2),Math.floor(h/2)]];
+  let eerste = null;
+  for(const [x,y] of punten){
+    const px = ctx.getImageData(x, y, 1, 1).data;
+    if(eerste === null) eerste = px;
+    else if(px[0] !== eerste[0] || px[1] !== eerste[1] || px[2] !== eerste[2]) return false;
+  }
+  return true;
+}
+
+// Op sommige toestellen (vooral iPhone/iPad-foto's in het HEIC-formaat) toont
+// een <img>-tag de foto wel gewoon, maar tekent diezelfde foto NIETS als je ze
+// via canvas probeert te verkleinen — het resultaat is dan een volledig
+// blanco/wit beeld, dat nadien ook op het boekingsplatform als een wit vlak
+// verschijnt. We detecteren dat hier en proberen het te herstellen via
+// createImageBitmap() (een andere decodeerweg die op de meeste toestellen wél
+// correct met HEIC omgaat) vóór de foto effectief opgeslagen wordt — lukt ook
+// dat niet, dan wordt de foto geweigerd met een duidelijke melding i.p.v.
+// stilzwijgend een onbruikbare witte foto op te slaan.
 function resizeImageFile(file, maxWidth=900, quality=0.62){
   return new Promise((resolve, reject)=>{
     const reader = new FileReader();
     reader.onload = e => {
       const img = new Image();
-      img.onload = () => {
-        const scale = Math.min(1, maxWidth / img.width);
-        const w = Math.round(img.width * scale);
-        const h = Math.round(img.height * scale);
-        const canvas = document.createElement('canvas');
-        canvas.width = w; canvas.height = h;
-        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL('image/jpeg', quality));
+      img.onload = async () => {
+        try {
+          let canvas = tekenOpCanvas(img, maxWidth);
+          if(canvasLijktBlanco(canvas) && window.createImageBitmap){
+            try {
+              const bitmap = await createImageBitmap(file);
+              canvas = tekenOpCanvas(bitmap, maxWidth);
+            } catch(e){ /* geen terugval mogelijk — hieronder blijkt dan alsnog dat het blanco is */ }
+          }
+          if(canvasLijktBlanco(canvas)){
+            reject(new Error('Deze foto kon niet verwerkt worden (komt er blanco/wit uit) — waarschijnlijk door het HEIC-fotoformaat. Zet op dit toestel Instellingen > Camera > Formaten op "Meest compatibel" en probeer opnieuw.'));
+            return;
+          }
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        } catch(err){ reject(err); }
       };
       img.onerror = reject;
       img.src = e.target.result;
@@ -2874,12 +2968,19 @@ function bindDetailEvents(d){
     });
   }
 
-  // toggles
+  // toggles — de hele rij (tekst + schakelaar) is tikbaar, niet enkel het
+  // kleine schakelaartje zelf: dat schakelaartje is maar 46×27px, terwijl de
+  // duidelijk leesbare labeltekst ("Kasteel nat of vuil" e.d.) er ruim naast
+  // staat — met natte/vuile handen of handschoenen tikt iemand al snel op de
+  // tekst en niet op het exacte schakelaartje, en dan gebeurde er voorheen
+  // niets.
   ['chk-correct','chk-valmatten','chk-kabel','chk-netjes',
    'chk-valmatten-terug','chk-kabels-terug','chk-bevestiging-terug','chk-nat-vuil','chk-reiniging'].forEach(id=>{
     const el = document.getElementById(id);
     if(!el) return;
-    el.addEventListener('click', ()=>{
+    const rij = el.closest('.check-row') || el;
+    rij.style.cursor = 'pointer';
+    rij.addEventListener('click', ()=>{
       const on = el.dataset.checked !== '1';
       el.dataset.checked = on ? '1' : '0';
       el.classList.toggle('on', on);
@@ -2912,19 +3013,37 @@ function bindDetailEvents(d){
     if(existing.length + files.length > 8){
       showToast('Max 8 foto\'s per dossier');
     }
-    try{
-      for(const f of files.slice(0, Math.max(0, 8 - existing.length))){
+    const teVerwerken = files.slice(0, Math.max(0, 8 - existing.length));
+    // Elke foto ONAFHANKELIJK verwerken — voorheen stopte de hele batch bij de
+    // eerste mislukte foto (bv. een blanco HEIC-foto), waardoor foto's ERNA in
+    // dezelfde selectie stilzwijgend nooit verstuurd werden. Nu gaat elke foto
+    // gewoon door, en tonen we achteraf duidelijk hoeveel er gelukt/mislukt zijn.
+    let gelukt = 0;
+    const mislukteNamen = [];
+    for(const f of teVerwerken){
+      try{
         const dataUrl = await resizeImageFile(f);
         await addPhotoRemote(d.id, f.name, dataUrl, checklistMode);
+        gelukt++;
+        refreshPhotoGrid(d.id); // meteen zichtbaar, niet pas na de hele batch
+      }catch(err){
+        mislukteNamen.push(f.name + ' (' + err.message + ')');
       }
-    }catch(err){ showToast(err.message); }
+    }
     e.target.value = '';
+    if(mislukteNamen.length){
+      showToast((gelukt ? gelukt + ' foto\'s toegevoegd. ' : '') + mislukteNamen.length + ' foto(\'s) mislukt: ' + mislukteNamen.join(', '));
+    } else if(gelukt){
+      showToast(gelukt === 1 ? '📷 Foto toegevoegd' : '📷 ' + gelukt + ' foto\'s toegevoegd');
+    }
     refreshPhotoGrid(d.id);
   });
 
-  document.getElementById('save-checklist').addEventListener('click', ()=> collectAndSave(d, true));
-  document.getElementById('make-pdf').addEventListener('click', async ()=>{
-    await collectAndSave(d, false);
+  const saveChecklistBtn = document.getElementById('save-checklist');
+  saveChecklistBtn.addEventListener('click', ()=> collectAndSave(d, true, saveChecklistBtn));
+  const makePdfBtn = document.getElementById('make-pdf');
+  makePdfBtn.addEventListener('click', async ()=>{
+    await collectAndSave(d, false, makePdfBtn);
     await generateAndOfferPdf(d);
   });
 
@@ -2950,7 +3069,7 @@ function bindDetailEvents(d){
       d.plaatsing.bevestigdOp = new Date().toISOString();
       if(d.status === 'te-leveren') d.status = 'geplaatst';
       try{
-        await saveDeliveries(d);
+        await withBusy(confirmPlaatsingBtn, 'Bezig met bevestigen...', () => saveDeliveries(d));
         showToast('Levering bevestigd — niet langer aanpasbaar');
         setView('detail', d.id);
       }catch(err){
@@ -2964,7 +3083,7 @@ function bindDetailEvents(d){
     editPlaatsingBtn.addEventListener('click', async ()=>{
       d.plaatsing.bevestigd = false;
       try{
-        await saveDeliveries(d);
+        await withBusy(editPlaatsingBtn, 'Bezig...', () => saveDeliveries(d));
         showToast('Levering staat weer open om te bewerken');
         setView('detail', d.id);
       }catch(err){
@@ -2982,7 +3101,7 @@ function bindDetailEvents(d){
       d.afhaling.bevestigdOp = new Date().toISOString();
       d.status = 'afgerond';
       try{
-        await saveDeliveries(d);
+        await withBusy(confirmAfhalingBtn, 'Bezig met bevestigen...', () => saveDeliveries(d));
         showToast('Afhaling bevestigd — dossier afgerond');
         setView('detail', d.id);
       }catch(err){
@@ -3059,10 +3178,10 @@ function collectFromForm(d){
   }
 }
 
-async function collectAndSave(d, toast){
+async function collectAndSave(d, toast, knop){
   collectFromForm(d);
   try{
-    await saveDeliveries(d);
+    await withBusy(knop, 'Bezig met opslaan...', () => saveDeliveries(d));
   }catch(err){
     showToast(err.message);
     return;
@@ -3371,6 +3490,33 @@ function showAuthScreen(){
 let assignableUsers = [];
 let appSettings = {};
 let myTeamIds = [];
+let myTeams = []; // volledige {id,naam,fase} rijen — voor de voertuig-banner hieronder
+// Toont bovenaan (buiten de tab-inhoud, dus blijft staan bij tabwissel) altijd
+// zichtbaar in welk voertuig je vandaag zit — dit stond voorheen ENKEL
+// verstopt achter het ingeklapte "🚐 Huidige bezetting"-paneel, waardoor een
+// automatisch (via het standaard voertuig) of door iemand anders gewijzigd
+// voertuig makkelijk onopgemerkt bleef.
+function updateVoertuigBanner(){
+  const el = document.getElementById('voertuig-banner');
+  if(!el) return;
+  if(!currentUser || currentUser.rol === 'admin' || myTeams.length === 0){
+    el.style.display = 'none';
+    return;
+  }
+  const levering = myTeams.find(t=>t.fase==='levering');
+  const afhaling = myTeams.find(t=>t.fase==='afhaling');
+  const delen = [];
+  if(levering) delen.push('Levering: ' + escapeHtml(levering.naam));
+  if(afhaling && (!levering || afhaling.id !== levering.id)) delen.push('Afhaling: ' + escapeHtml(afhaling.naam));
+  else if(afhaling && levering && afhaling.id === levering.id) delen[0] = 'Vandaag: ' + escapeHtml(levering.naam);
+  el.innerHTML = `<span>🚐 ${delen.join(' · ')}</span><span class="wijzig">wijzigen</span>`;
+  el.style.display = 'flex';
+  el.onclick = () => {
+    vehiclePanelOpen = true;
+    setView('list');
+    loadOccupancyData().then(render);
+  };
+}
 async function showApp(){
   document.getElementById('authScreen').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
@@ -3383,12 +3529,13 @@ async function showApp(){
     startLocationSharing();
   }
   try{ teamsData = await apiFetch('/api/teams'); }catch(e){ teamsData = []; }
-  try{ const myTeams = await apiFetch('/api/my-teams'); myTeamIds = myTeams.map(t=>t.id); }catch(e){ myTeamIds = []; }
+  try{ myTeams = await apiFetch('/api/my-teams'); myTeamIds = myTeams.map(t=>t.id); }catch(e){ myTeams = []; myTeamIds = []; }
   try{ appSettings = await apiFetch('/api/settings'); }catch(e){ appSettings = {}; }
   try{ productenData = await apiFetch('/api/producten'); }catch(e){ productenData = []; }
   setupPushNotifications();
   await loadDeliveries();
   setView('list');
+  updateVoertuigBanner();
   startAutoRefresh();
 }
 
