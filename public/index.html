@@ -18,6 +18,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <style>
 :root{
+  color-scheme: dark;
   --bg:#262B31;
   --panel:#323841;
   --panel-alt:#3B424D;
@@ -33,6 +34,7 @@
   --radius:4px;
 }
 [data-theme="light"]{
+  color-scheme: light;
   --bg:#E7E9EC;
   --panel:#F3F4F6;
   --panel-alt:#E1E4E8;
@@ -103,6 +105,16 @@ h1,h2,h3,.label-font{
 .topbar .sub{font-size:12px;color:var(--text-dim);margin-top:1px;}
 
 main{flex:1;padding:16px;}
+.laad-scherm{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:14px;padding:60px 20px;color:var(--text-dim);font-size:14px;text-align:center;
+}
+.laad-spinner{
+  width:32px;height:32px;border-radius:50%;
+  border:3px solid var(--line);border-top-color:var(--accent);
+  animation:laad-draai 0.8s linear infinite;
+}
+@keyframes laad-draai{to{transform:rotate(360deg);}}
 
 /* Bottom nav */
 .tabbar{
@@ -2416,6 +2428,11 @@ function wazeUrl(adres){
 }
 
 let earlyUnlocked = new Set();
+// Houdt bij voor welke levering de handtekening-stap (na "Levering bevestigen")
+// net actief staat, zodat renderDetail() weet of de checklist-knop of het
+// tekenscherm getoond moet worden. Vergelijken op d.id, dus navigeren naar een
+// andere levering toont automatisch weer gewoon de normale knop.
+let handtekeningActiefVoor = null;
 function daysBetween(a,b){
   return Math.round((new Date(b+'T00:00:00') - new Date(a+'T00:00:00')) / 86400000);
 }
@@ -2445,8 +2462,8 @@ function renderDetail(d){
   </div>
 
   <div class="detail-head">
-    <div class="klant">${escapeHtml(d.klant)}</div>
-    <div class="adres" id="adres-display" style="cursor:pointer" title="Tik om het adres aan te passen">${escapeHtml(d.adres || 'Geen adres')} <span style="opacity:0.6;font-size:12px">✎ bewerken</span></div>
+    <div class="klant">${escapeHtml(primaryProductLabel(d))}</div>
+    <div class="adres" id="adres-display" style="cursor:pointer;font-size:16px;font-weight:600;color:var(--text)" title="Tik om het adres aan te passen">📍 ${escapeHtml(d.adres || 'Geen adres')} <span style="opacity:0.6;font-size:12px;font-weight:400">✎ bewerken</span></div>
     <div class="field" id="adres-edit-wrap" style="display:none;margin-top:6px;max-width:360px">
       <input type="text" id="adres-edit-input" value="${escapeHtml(d.adres||'')}" placeholder="Straat, nr, postcode gemeente">
       <div class="stack" style="margin-top:6px">
@@ -2455,6 +2472,7 @@ function renderDetail(d){
       </div>
     </div>
     <div class="meta">
+      <span>👤 ${escapeHtml(d.klant || 'Naamloos')}</span>
       <span>📅 ${fmtDate(d.datum)} ${d.tijdslot ? '· ' + escapeHtml(d.tijdslot) : ''}</span>
       ${d.telefoon ? `<span>📞 <a href="tel:${escapeHtml(String(d.telefoon).replace(/[^\d+]/g,''))}" style="color:inherit;text-decoration:underline">${escapeHtml(d.telefoon)}</a></span>` : ''}
       ${d.email ? `<span>✉️ ${escapeHtml(d.email)}</span>` : ''}
@@ -2545,7 +2563,13 @@ function renderDetail(d){
       </div>
     ` : `
       <div class="locked-banner">✓ Levering bevestigd — ${fmtDateTime(d.plaatsing.bevestigdOp)}</div>
-      <button class="btn small secondary" id="edit-plaatsing">Levering bewerken</button>
+      ${d.plaatsing.handtekening ? `<div class="field" style="margin-top:10px;margin-bottom:0">
+        <label>Handtekening${d.plaatsing.handtekeningNaam ? ' — ' + escapeHtml(d.plaatsing.handtekeningNaam) : ''}</label>
+        <div style="background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:4px;display:inline-block">
+          <img src="${d.plaatsing.handtekening}" style="max-width:220px;width:100%;display:block">
+        </div>
+      </div>` : ''}
+      <button class="btn small secondary" id="edit-plaatsing" style="margin-top:10px">Levering bewerken</button>
     `}
   </div>
 
@@ -2575,11 +2599,13 @@ function renderDetail(d){
     ` : ''}
   </div>
 
-  ${(!d.plaatsing.bevestigd && !isPlaatsingEarly) ? `
-  <div class="stack" style="margin-bottom:14px">
-    <button class="btn ok" id="confirm-plaatsing">Levering bevestigen</button>
-  </div>
-  ` : ''}
+  ${(!d.plaatsing.bevestigd && !isPlaatsingEarly) ? (
+    handtekeningActiefVoor === d.id ? renderHandtekeningStap(d) : `
+    <div class="stack" style="margin-bottom:14px">
+      <button class="btn ok" id="confirm-plaatsing">Levering bevestigen</button>
+    </div>
+    `
+  ) : ''}
 
   ${d.plaatsing.bevestigd ? `
   <div class="section">
@@ -2642,6 +2668,7 @@ function renderPlaatsingChecklist(d){
     ${isHard ? `<div class="queue-note" style="margin-bottom:12px;text-align:left;border-color:rgba(217,164,65,0.5);color:var(--warn)">
       Harde ondergrond: valmatten zijn verplicht, gebruik zandzakken of verankering — geen pinnen.
     </div>` : ''}
+    ${checkRow('chk-grasrobot','Grasrobot uitgeschakeld','Afgesproken met klant — blijft uit tot de afhaling', p.grasrobotUit)}
     ${checkRow('chk-correct','Springkasteel correct geplaatst','', p.correctGeplaatst)}
     <div class="check-row" style="border-bottom:none;flex-direction:column;align-items:flex-start;gap:8px;">
       <div class="txt">Bevestiging</div>
@@ -2669,6 +2696,104 @@ function renderPlaatsingChecklist(d){
 
 function bevestigingLabel(val){
   return val === 'pinnen' ? 'Pinnen' : val === 'zandzakken' ? 'Zandzakken' : val === 'verankering' ? 'Verankering' : '';
+}
+
+// Laatste stap bij het bevestigen van een levering: kort overzicht van wat er
+// afgesproken/vastgesteld is (springkasteel, adres, grasrobot, kabels, ...) +
+// een handtekeningvak. Pas als hier getekend wordt, gaat de levering écht op
+// "bevestigd" — hiervoor blijft de gewone checklist gewoon aanpasbaar.
+function renderHandtekeningStap(d){
+  const p = d.plaatsing;
+  const overzicht = [
+    ['Springkasteel', primaryProductLabel(d)],
+    ['Adres', d.adres || '—'],
+    ['Klant', d.klant || '—'],
+    ['Grasrobot uitgeschakeld', p.grasrobotUit ? 'Ja' : 'Nee'],
+    ['Bevestiging', bevestigingLabel(p.bevestiging) || '—'],
+    (p.bevestiging === 'zandzakken' && p.aantalZandzakken) ? ['Aantal zandzakken', p.aantalZandzakken] : null,
+    ['Valmatten gebruikt', p.valmatten ? 'Ja' : 'Nee'],
+    p.verlengkabel ? ['Verlengkabels achtergelaten', p.aantalKabels || '?'] : null,
+    ['Kasteel netjes achtergelaten', p.netjes ? 'Ja' : 'Nee'],
+    p.opmerkingen ? ['Opmerkingen', p.opmerkingen] : null,
+  ].filter(Boolean);
+  return `
+  <div class="section" id="handtekening-sectie">
+    <h3>Klant laat tekenen voor akkoord</h3>
+    <div class="queue-note" style="margin-bottom:12px;text-align:left">Overloop dit kort met de klant vóór het tekenen — nadien kan de checklist niet meer aangepast worden.</div>
+    <div style="font-size:13px;line-height:1.8;margin-bottom:14px">
+      ${overzicht.map(([label,val]) => `<div><span style="color:var(--text-dim)">${escapeHtml(label)}:</span> <b>${escapeHtml(String(val))}</b></div>`).join('')}
+    </div>
+    <div class="field" style="margin-bottom:10px">
+      <label>Naam ondertekenaar</label>
+      <input type="text" id="handtekening-naam" value="${escapeHtml(d.klant||'')}">
+    </div>
+    <div class="field">
+      <label>Handtekening klant</label>
+      <div style="background:#fff;border:1px solid var(--line);border-radius:var(--radius);overflow:hidden">
+        <canvas id="handtekening-canvas" style="display:block;width:100%;height:160px;touch-action:none"></canvas>
+      </div>
+      <div class="stack" style="margin-top:8px">
+        <button class="btn small secondary" id="handtekening-wissen" type="button">Wissen</button>
+      </div>
+    </div>
+    <div class="stack" style="margin-top:14px">
+      <button class="btn ok" id="handtekening-bevestigen">Ondertekend — bevestigen</button>
+      <button class="btn secondary" id="handtekening-annuleren">Annuleren</button>
+    </div>
+  </div>
+  `;
+}
+
+// Kleine, dependency-vrije handtekeningpad (canvas) — werkt met muis (desktop-
+// test) én touch (iPad, het echte gebruik). Retina-scherp getekend via
+// devicePixelRatio, anders oogt de lijn wazig op een iPad-scherm.
+function setupSignaturePad(canvas){
+  const ctx = canvas.getContext('2d');
+  const ratio = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = Math.max(1, Math.round(rect.width * ratio));
+  canvas.height = Math.max(1, Math.round(rect.height * ratio));
+  ctx.scale(ratio, ratio);
+  ctx.lineWidth = 2.2;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = '#1a1a1a';
+  let tekenend = false;
+  let leeg = true;
+  let vorige = null;
+  function positie(e){
+    const r = canvas.getBoundingClientRect();
+    const p = (e.touches && e.touches[0]) || e;
+    return { x: p.clientX - r.left, y: p.clientY - r.top };
+  }
+  function start(e){
+    e.preventDefault();
+    tekenend = true;
+    vorige = positie(e);
+  }
+  function beweeg(e){
+    if(!tekenend) return;
+    e.preventDefault();
+    const p = positie(e);
+    ctx.beginPath();
+    ctx.moveTo(vorige.x, vorige.y);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+    vorige = p;
+    leeg = false;
+  }
+  function eind(){ tekenend = false; }
+  canvas.addEventListener('mousedown', start);
+  canvas.addEventListener('mousemove', beweeg);
+  window.addEventListener('mouseup', eind);
+  canvas.addEventListener('touchstart', start, { passive:false });
+  canvas.addEventListener('touchmove', beweeg, { passive:false });
+  canvas.addEventListener('touchend', eind);
+  return {
+    clear(){ ctx.clearRect(0, 0, canvas.width, canvas.height); leeg = true; },
+    isEmpty(){ return leeg; },
+    toDataUrl(){ return canvas.toDataURL('image/png'); }
+  };
 }
 
 function renderAfhalingChecklist(d){
@@ -2776,7 +2901,7 @@ function resizeImageFile(file, maxWidth=900, quality=0.62){
 }
 
 function bindDetailEvents(d){
-  document.getElementById('back-btn').addEventListener('click', ()=> setView('list'));
+  document.getElementById('back-btn').addEventListener('click', ()=> { handtekeningActiefVoor = null; setView('list'); });
 
   const adresDisplay = document.getElementById('adres-display');
   const adresEditWrap = document.getElementById('adres-edit-wrap');
@@ -3063,20 +3188,55 @@ function bindDetailEvents(d){
   }
   const confirmPlaatsingBtn = document.getElementById('confirm-plaatsing');
   if(confirmPlaatsingBtn){
-    confirmPlaatsingBtn.addEventListener('click', async ()=>{
+    confirmPlaatsingBtn.addEventListener('click', ()=>{
+      // Niet meteen opslaan: eerst de handtekening-stap tonen. Pas als de
+      // klant daar effectief tekent, wordt de levering echt bevestigd (zie
+      // de "handtekening-bevestigen"-knop hieronder).
       collectFromForm(d);
-      d.plaatsing.bevestigd = true;
-      d.plaatsing.bevestigdOp = new Date().toISOString();
-      if(d.status === 'te-leveren') d.status = 'geplaatst';
-      try{
-        await withBusy(confirmPlaatsingBtn, 'Bezig met bevestigen...', () => saveDeliveries(d));
-        showToast('Levering bevestigd — niet langer aanpasbaar');
-        setView('detail', d.id);
-      }catch(err){
-        d.plaatsing.bevestigd = false;
-        showToast(err.message);
-      }
+      handtekeningActiefVoor = d.id;
+      setView('detail', d.id);
     });
+  }
+  const handtekeningCanvas = document.getElementById('handtekening-canvas');
+  if(handtekeningCanvas){
+    const handtekeningPad = setupSignaturePad(handtekeningCanvas);
+    const handtekeningWissenBtn = document.getElementById('handtekening-wissen');
+    if(handtekeningWissenBtn) handtekeningWissenBtn.addEventListener('click', ()=> handtekeningPad.clear());
+    const handtekeningAnnulerenBtn = document.getElementById('handtekening-annuleren');
+    if(handtekeningAnnulerenBtn){
+      handtekeningAnnulerenBtn.addEventListener('click', ()=>{
+        handtekeningActiefVoor = null;
+        setView('detail', d.id);
+      });
+    }
+    const handtekeningBevestigenBtn = document.getElementById('handtekening-bevestigen');
+    if(handtekeningBevestigenBtn){
+      handtekeningBevestigenBtn.addEventListener('click', async ()=>{
+        if(handtekeningPad.isEmpty()){
+          showToast('Laat de klant hier eerst tekenen');
+          return;
+        }
+        const naamEl = document.getElementById('handtekening-naam');
+        d.plaatsing.handtekening = handtekeningPad.toDataUrl();
+        d.plaatsing.handtekeningNaam = (naamEl && naamEl.value.trim()) || d.klant || '';
+        d.plaatsing.handtekeningOp = new Date().toISOString();
+        d.plaatsing.bevestigd = true;
+        d.plaatsing.bevestigdOp = new Date().toISOString();
+        if(d.status === 'te-leveren') d.status = 'geplaatst';
+        try{
+          await withBusy(handtekeningBevestigenBtn, 'Bezig met bevestigen...', () => saveDeliveries(d));
+          handtekeningActiefVoor = null;
+          showToast('Levering bevestigd — niet langer aanpasbaar');
+          setView('detail', d.id);
+        }catch(err){
+          d.plaatsing.bevestigd = false;
+          d.plaatsing.handtekening = '';
+          d.plaatsing.handtekeningNaam = '';
+          d.plaatsing.handtekeningOp = '';
+          showToast(err.message);
+        }
+      });
+    }
   }
   const editPlaatsingBtn = document.getElementById('edit-plaatsing');
   if(editPlaatsingBtn){
@@ -3143,6 +3303,7 @@ function collectFromForm(d){
   d.afhaaldatum = document.getElementById('afhaaldatum').value;
   d.afhaaltijd = document.getElementById('afhaaltijd').value;
 
+  d.plaatsing.grasrobotUit = checkedVal('chk-grasrobot');
   d.plaatsing.correctGeplaatst = checkedVal('chk-correct');
   const bevestigingActive = document.querySelector('#bevestiging-pills .pill.active');
   d.plaatsing.bevestiging = bevestigingActive ? bevestigingActive.dataset.val : '';
@@ -3520,6 +3681,10 @@ function updateVoertuigBanner(){
 async function showApp(){
   document.getElementById('authScreen').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
+  // Meteen iets tonen i.p.v. een leeg scherm terwijl de paar API-aanroepen
+  // hieronder na elkaar lopen (kan op een trage 4G-verbinding onderweg wel
+  // een paar seconden duren) — voelde voorheen aan alsof de app hing.
+  document.getElementById('main').innerHTML = '<div class="laad-scherm"><div class="laad-spinner"></div>Bezig met laden...</div>';
   document.getElementById('teamTabBtn').style.display = (currentUser && currentUser.rol === 'admin') ? '' : 'none';
   document.getElementById('instellingenTabBtn').style.display = (currentUser && currentUser.rol === 'admin') ? '' : 'none';
   document.getElementById('voertuigTabBtn').style.display = (currentUser && currentUser.rol !== 'admin') ? '' : 'none';
