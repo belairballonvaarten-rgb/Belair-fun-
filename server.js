@@ -595,6 +595,21 @@ app.put('/api/deliveries/:id', auth, async (req, res) => {
       [boekingId, ...kolommen.map((k) => velden[k])]
     );
 
+    // "Kasteel nat/vuil" of "reiniging nodig" bij de afhaling-checklist moet
+    // zich vertalen naar producten.staat = 'vuil' op het boekingsplatform (zie
+    // de uitleg hierover in migratie 020_crew_app_consolidatie.sql) — dat is
+    // wat het Dagoverzicht daar toont/waarschuwt. Die vertaling gebeurde tot
+    // nu toe nergens echt: het vinkje in de app werd wel opgeslagen, maar
+    // kwam nooit door naar het product zelf. Geldt voor alle producten van
+    // deze boeking (de checklist maakt geen onderscheid per productregel).
+    if (velden.afhaling_nat_of_vuil || velden.afhaling_reiniging_nodig) {
+      await client.query(
+        `UPDATE producten SET staat = 'vuil', staat_bijgewerkt_op = now()
+         WHERE id IN (SELECT product_id FROM boeking_producten WHERE boeking_id = $1)`,
+        [boekingId]
+      );
+    }
+
     await client.query('COMMIT');
     res.json({ ok: true, leveringenId: upsert.rows[0].id });
   } catch (e) {
