@@ -1990,7 +1990,12 @@ let vehiclePanelOpen = false;
 // Dit paneel werkt bewust enkel op VANDAAG (zie renderList()).
 let occupancyFase = 'levering';
 let occupancyBemanning = {}; // admin: { [voertuigId]: [{id,naam}] } voor occupancyFase, vandaag
-let myVoertuigen = { levering: null, afhaling: null }; // crew: eigen voertuig per fase, vandaag
+// Niet-admin (in de praktijk: een vast voertuig-account, bv. de iPad in een
+// bestelwagen): dat account heeft zelf al een vast voertuig (Standaard
+// voertuig op de Crew-pagina), dus hier niet nog eens een voertuig LATEN
+// KIEZEN — enkel tonen/aanpassen wie van de crew mee rijdt in dát voertuig.
+let myVoertuigBemanning = { voertuigId: null, voertuigNaam: '', leden: [] };
+let crewPubliek = []; // { id, naam }[] — voor het aanvinklijstje hierboven
 async function loadOccupancyData(){
   if(currentUser.rol === 'admin'){
     try{
@@ -1998,8 +2003,17 @@ async function loadOccupancyData(){
       occupancyBemanning = r.bemanning || {};
     }catch(e){ occupancyBemanning = {}; }
   } else {
-    try{ myVoertuigen = await apiFetch('/api/mijn-voertuig'); }
-    catch(e){ myVoertuigen = { levering: null, afhaling: null }; }
+    try{
+      const [bemanning, crew] = await Promise.all([
+        apiFetch('/api/mijn-voertuig-bemanning?fase=' + occupancyFase),
+        apiFetch('/api/crew-publiek'),
+      ]);
+      myVoertuigBemanning = bemanning;
+      crewPubliek = crew;
+    }catch(e){
+      myVoertuigBemanning = { voertuigId: null, voertuigNaam: '', leden: [] };
+      crewPubliek = [];
+    }
   }
 }
 function renderVehicleOccupancyPanel(){
@@ -2031,15 +2045,25 @@ function renderVehicleOccupancyPanel(){
           </details>`;
       }).join('');
     } else {
-      // Crew ziet enkel het eigen voertuig voor de gekozen fase, geen info over andere voertuigen/bemanning
-      const mineId = myVoertuigen[occupancyFase];
-      inner = fasePills + `<div class="field" style="margin-bottom:0">
-        <label>Jouw voertuig voor ${faseLabel(occupancyFase).toLowerCase()}</label>
-        <select id="my-vehicle-select">
-          <option value="">Niet toegewezen</option>
-          ${teamsData.map(t=>`<option value="${t.id}" ${mineId===t.id?'selected':''}>${escapeHtml(t.naam)}</option>`).join('')}
-        </select>
-      </div>`;
+      // Crew (in de praktijk: het vaste voertuig-account) kiest hier geen
+      // voertuig meer — dat ligt al vast (Standaard voertuig) — maar duidt
+      // enkel aan wie van de crew vandaag mee rijdt in dát eigen voertuig.
+      if(!myVoertuigBemanning.voertuigId){
+        inner = fasePills + `<div class="queue-note" style="text-align:left">Aan dit account hangt nog geen voertuig. Vraag de admin dit in te stellen op de Crew-pagina ("Standaard voertuig").</div>`;
+      } else {
+        const ledenIds = new Set(myVoertuigBemanning.leden.map(l=>l.id));
+        inner = fasePills + `
+          <div style="font-size:13px;color:var(--text-dim);margin-bottom:8px">Wie van de crew zit mee in <b style="color:var(--text)">${escapeHtml(myVoertuigBemanning.voertuigNaam)}</b> voor ${faseLabel(occupancyFase).toLowerCase()}?</div>
+          <div class="occ-checkboxes">
+            ${crewPubliek.filter(u=>u.id !== currentUser.id).map(u=>`
+              <label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:14px;cursor:pointer">
+                <input type="checkbox" value="${u.id}" class="mijn-occ-cb" ${ledenIds.has(u.id)?'checked':''}> ${escapeHtml(u.naam)}
+              </label>
+            `).join('')}
+          </div>
+          <button class="btn small ok" style="margin-top:8px" id="mijn-occ-save">Bemanning opslaan (${faseLabel(occupancyFase)})</button>
+        `;
+      }
     }
   }
   return `<div style="margin-bottom:14px">
@@ -2363,26 +2387,17 @@ function bindListEvents(){
       });
     });
   }
-  const myVehicleSelect = document.getElementById('my-vehicle-select');
-  if(myVehicleSelect){
-    myVehicleSelect.addEventListener('change', async (e)=>{
-      const voertuigId = e.target.value || null;
-      const fase = occupancyFase;
-      const prev = myVoertuigen[fase];
-      const naam = voertuigId ? teamsData.find(t=>t.id===voertuigId).naam : null;
-      myVoertuigen = { ...myVoertuigen, [fase]: voertuigId };
+  const mijnOccSaveBtn = document.getElementById('mijn-occ-save');
+  if(mijnOccSaveBtn){
+    mijnOccSaveBtn.addEventListener('click', async (e)=>{
+      e.preventDefault();
+      const gebruikerIds = Array.from(document.querySelectorAll('.mijn-occ-cb:checked')).map(cb=>parseInt(cb.value,10));
       try{
-        await apiFetch('/api/mijn-voertuig', { method:'PUT', body: JSON.stringify({ datum: todayISO(), fase, voertuigId }) });
-        teamsData = await apiFetch('/api/teams'); // bemanningslijsten verversen, anders lijkt het alsof er niets gebeurd is
-        myTeams = await apiFetch('/api/my-teams');
-        myTeamIds = myTeams.map(t=>t.id);
-        updateVoertuigBanner();
-        showToast(naam ? 'Je zit nu in ' + naam + ' (' + (fase==='levering'?'levering':'afhaling') + ')' : 'Voertuig gewist');
+        await withBusy(mijnOccSaveBtn, 'Bezig met opslaan...', () => apiFetch('/api/mijn-voertuig-bemanning', { method:'PUT', body: JSON.stringify({ datum: todayISO(), fase: occupancyFase, gebruikerIds }) }));
+        await loadOccupancyData();
+        showToast('Bemanning opgeslagen');
         render();
-      }catch(err){
-        myVoertuigen = { ...myVoertuigen, [fase]: prev };
-        showToast(err.message);
-      }
+      }catch(err){ showToast(err.message); }
     });
   }
   const vehiclePanelToggle = document.getElementById('vehicle-panel-toggle');
@@ -3875,12 +3890,23 @@ function toggleTheme(){
   }
 
   if(authToken){
-    try{
-      const r = await apiFetch('/api/me');
-      currentUser = r.user;
-      await showApp();
-      return;
-    }catch(err){ /* token ongeldig, val terug op login */ }
+    // Bij het openen van de app (vaak net wakker uit slaapstand, in een
+    // bestelwagen met wisselend bereik) kan deze eerste aanroep gewoon
+    // stranden op een trage/tijdelijk afwezige verbinding — dat betekent niet
+    // dat de sessie echt verlopen is (een échte 401 heeft apiFetch() zelf al
+    // afgehandeld: authToken is dan al leeg via doLogout()). Daarom een paar
+    // keer herproberen vóór we de chauffeur voor niets laten opnieuw inloggen.
+    for(let poging = 1; poging <= 3; poging++){
+      try{
+        const r = await apiFetch('/api/me');
+        currentUser = r.user;
+        await showApp();
+        return;
+      }catch(err){
+        if(!authToken) break; // echte 401: doLogout() heeft al opgeruimd, geen zin om te herproberen
+        if(poging < 3) await new Promise(res => setTimeout(res, 1000 * poging));
+      }
+    }
   }
   authMode = 'login';
   showAuthScreen();
