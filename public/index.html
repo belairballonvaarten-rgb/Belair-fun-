@@ -2977,7 +2977,14 @@ function bindDetailEvents(d){
   const wazeBtn = document.getElementById('waze-btn');
   if(wazeBtn){
     wazeBtn.addEventListener('click', ()=>{
-      window.open(wazeUrl(d.adres), '_blank');
+      // Let op: GEEN window.open(..., '_blank') gebruiken hier — op iPhone
+      // (zowel gewone browser als "toegevoegd aan beginscherm") opent dat een
+      // NIEUW, leeg tabblad om Waze in op te starten; zodra Waze de link
+      // overneemt blijft dat tabblad als leeg/wit scherm achter, en dáár kom
+      // je op terecht bij het teruggaan naar de app. Door gewoon de HUIDIGE
+      // pagina te laten doorverwijzen, is er geen extra leeg tabblad en sta
+      // je bij het teruggaan gewoon weer in de app zoals normaal.
+      window.location.href = wazeUrl(d.adres);
     });
   }
 
@@ -3026,7 +3033,9 @@ function bindDetailEvents(d){
       const digits = String(d.telefoon).replace(/[^\d+]/g,'');
       const intl = digits.startsWith('+') ? digits.slice(1) : digits.startsWith('0') ? '32' + digits.slice(1) : digits;
       const tekst = `Bedankt om voor Belair-Fun te kiezen, ${d.klant}! Zou je ons een Google review willen geven? ${appSettings.googleReviewUrl}`;
-      window.open('https://wa.me/' + intl + '?text=' + encodeURIComponent(tekst), '_blank');
+      // Zelfde reden als bij de Waze-knop hierboven: geen '_blank', anders
+      // blijft er een leeg tabblad achter zodra WhatsApp de link overneemt.
+      window.location.href = 'https://wa.me/' + intl + '?text=' + encodeURIComponent(tekst);
     });
   }
   const reviewEmailBtn = document.getElementById('review-email');
