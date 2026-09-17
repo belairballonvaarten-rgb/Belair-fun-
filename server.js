@@ -342,6 +342,16 @@ app.get('/api/voertuigen-publiek', async (req, res) => {
   res.json(r.rows);
 });
 
+// Lichte crewlijst (enkel id+naam, geen gebruikersnaam/wachtwoord/telefoon) —
+// voor NIET-admin gebruikers, zodat een vast voertuig-account (bv. de iPad in
+// een bestelwagen) zelf kan aanduiden wie van de crew vandaag mee rijdt, via
+// /api/mijn-voertuig-bemanning hieronder. /api/users (met alle velden) blijft
+// adminOnly.
+app.get('/api/crew-publiek', auth, async (req, res) => {
+  const r = await pool.query('SELECT id, naam FROM users ORDER BY naam');
+  res.json(r.rows);
+});
+
 app.post('/api/device-login', rateLimiter('device-login'), async (req, res) => {
   const { voertuigId, code } = req.body || {};
   if (!voertuigId || !code) return res.status(400).json({ error: 'Kies een voertuig en vul de toegangscode in' });
@@ -958,6 +968,85 @@ app.put('/api/mijn-voertuig', auth, async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     res.status(400).json({ error: 'Kon voertuig niet instellen: ' + e.message });
+  }
+});
+
+// Zelfde voertuig-bepaling als /api/my-teams hierboven (voertuig_bemanning
+// van vandaag, anders het standaard voertuig) — hier apart getrokken zodat
+// /api/mijn-voertuig-bemanning (GET/PUT) hieronder exact hetzelfde voertuig
+// gebruikt, ongeacht welk van de twee endpoints het eerst aangeroepen werd.
+async function bepaalMijnVoertuigId(gebruikerId, fase, datum) {
+  const r = await pool.query(
+    'SELECT voertuig_id FROM voertuig_bemanning WHERE gebruiker_id=$1 AND datum=$2 AND fase=$3',
+    [gebruikerId, datum, fase]
+  );
+  if (r.rows[0]) return r.rows[0].voertuig_id;
+  const { rows: userRows } = await pool.query('SELECT standaard_voertuig_id FROM users WHERE id=$1', [gebruikerId]);
+  return (userRows[0] && userRows[0].standaard_voertuig_id) || null;
+}
+
+// Niet-admin variant van "Huidige bezetting": een crewlid (in de praktijk
+// vooral een vast voertuig-account, bv. de iPad in een bestelwagen) mag ENKEL
+// de bemanning van zijn EIGEN voertuig van vandaag bewerken — het voertuig
+// wordt hier dus altijd zelf bepaald (bepaalMijnVoertuigId), nooit door de
+// client meegegeven, zodat dit nooit de bemanning van een ANDER voertuig kan
+// wijzigen (dat blijft voorbehouden aan /api/voertuig-bemanning, adminOnly).
+app.get('/api/mijn-voertuig-bemanning', auth, async (req, res) => {
+  const datum = ISODATE_REGEX.test(req.query.datum || '') ? req.query.datum : vandaagIso();
+  const fase = req.query.fase === 'afhaling' ? 'afhaling' : 'levering';
+  const voertuigId = await bepaalMijnVoertuigId(req.user.id, fase, datum);
+  if (!voertuigId) return res.json({ datum, fase, voertuigId: null, voertuigNaam: '', leden: [] });
+  const [voertuigRes, ledenRes] = await Promise.all([
+    pool.query('SELECT naam FROM voertuigen WHERE id=$1', [voertuigId]),
+    // Het ingelogde account zelf staat hier ook altijd tussen (zie /api/my-teams)
+    // — dat is geen "echte" bijrijder, dus niet tonen in de aan-te-vinken lijst.
+    pool.query(
+      'SELECT gebruiker_id AS id, gebruiker_naam AS naam FROM voertuig_bemanning WHERE voertuig_id=$1 AND datum=$2 AND fase=$3 AND gebruiker_id != $4',
+      [voertuigId, datum, fase, req.user.id]
+    ),
+  ]);
+  res.json({
+    datum, fase, voertuigId,
+    voertuigNaam: voertuigRes.rows[0] ? voertuigRes.rows[0].naam : '',
+    leden: ledenRes.rows,
+  });
+});
+app.put('/api/mijn-voertuig-bemanning', auth, async (req, res) => {
+  const { datum, fase, gebruikerIds } = req.body || {};
+  if (!['levering', 'afhaling'].includes(fase) || !Array.isArray(gebruikerIds)) {
+    return res.status(400).json({ error: 'fase (levering/afhaling) en gebruikerIds (lijst) zijn verplicht' });
+  }
+  const gekozenDatum = ISODATE_REGEX.test(datum || '') ? datum : vandaagIso();
+  const voertuigId = await bepaalMijnVoertuigId(req.user.id, fase, gekozenDatum);
+  if (!voertuigId) {
+    return res.status(400).json({ error: 'Aan dit account hangt nog geen voertuig — laat de admin dit instellen via de Crew-pagina ("Standaard voertuig").' });
+  }
+  // Zichzelf altijd mee opslaan (naast de gekozen bijrijders) — anders raakt
+  // de eigen voertuig-koppeling (nodig voor "voor mij"/de oranje balk) hier
+  // per ongeluk kwijt, want de DELETE hieronder ruimt ook de eigen rij op.
+  const idsZonderMezelf = gebruikerIds.map((id) => parseInt(id, 10)).filter((id) => Number.isFinite(id) && id !== req.user.id);
+  const ids = Array.from(new Set([...idsZonderMezelf, req.user.id]));
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `DELETE FROM voertuig_bemanning
+       WHERE datum = $1 AND fase = $2 AND (voertuig_id = $3 OR gebruiker_id = ANY($4::int[]))`,
+      [gekozenDatum, fase, voertuigId, ids]
+    );
+    await client.query(
+      `INSERT INTO voertuig_bemanning (voertuig_id, gebruiker_id, gebruiker_naam, datum, fase)
+       SELECT $1, u.id, u.naam, $2, $3 FROM users u WHERE u.id = ANY($4::int[])`,
+      [voertuigId, gekozenDatum, fase, ids]
+    );
+    await client.query('COMMIT');
+    res.json({ ok: true });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: 'Bemanning bijwerken mislukt: ' + e.message });
+  } finally {
+    client.release();
   }
 });
 
