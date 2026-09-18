@@ -1965,6 +1965,10 @@ async function refreshTeamList(){
 }
 
 // ---------- LIST VIEW ----------
+// Standaardwaarde hier is enkel een fallback vóór de eerste keer inloggen —
+// showApp() zet dit meteen na login op basis van de rol (zie daar): een
+// voertuig-account (bv. "Belair Camionette") start gefilterd op het eigen
+// voertuig, de admin start ongefilterd (ziet alles, voor de planning).
 let listFilter = 'alle'; // 'alle' | 'mij'
 let showLeveringen = true;
 let showAfhalingen = true;
@@ -2076,6 +2080,21 @@ function isAssignedToMe(assignment){
   if(assignment.type === 'team') return myTeamIds.includes(assignment.id);
   return assignment.id === currentUser.id;
 }
+// Bepaalt of een levering/afhaling zichtbaar is onder de "Voor mij"-filter
+// (listFilter==='mij', standaard voor een voertuig-account): het eigen
+// voertuig altijd, en nog niet toegewezen ritten ook altijd (anders lijkt
+// het alsof er niets te doen is) — enkel ritten die duidelijk aan het
+// ANDERE voertuig toegewezen zijn, worden dan verborgen. Bij listFilter
+// 'alle' (na op "Toon alle leveringen" te drukken, of als admin) altijd
+// zichtbaar. `veld` is 'toegewezenAan' (levering) of 'toegewezenAanAfhaling'
+// (afhaling) — welke van de twee hangt af van in welke sectie de rit getoond
+// wordt, niet enkel van de huidige status van de rit (zie renderList()).
+function isZichtbaarVoorFilter(d, veld){
+  if(listFilter !== 'mij') return true;
+  const toegewezen = d[veld];
+  if(!toegewezen) return true;
+  return isAssignedToMe(toegewezen);
+}
 function assignmentMatchesUser(assignment, userId){
   if(!assignment) return false;
   if(assignment.type === 'team'){
@@ -2186,7 +2205,7 @@ function renderList(){
   const vehicleOccupancyPanel = renderVehicleOccupancyPanel();
   const filterBar = `
     <div style="display:flex;align-items:center;justify-content:flex-end;margin-bottom:10px">
-      <span class="pill mij-toggle ${listFilter==='mij'?'active':''}" id="mij-toggle-pill" data-val="${listFilter==='mij'?'alle':'mij'}">${listFilter==='mij' ? '✓ Voor mij' : 'Voor mij'}</span>
+      <span class="pill mij-toggle ${listFilter==='alle'?'active':''}" id="mij-toggle-pill" data-val="${listFilter==='mij'?'alle':'mij'}">${listFilter==='mij' ? 'Toon alle leveringen' : '✓ Alle leveringen'}</span>
     </div>
     <div class="pillgroup" id="scope-filter-pills" style="margin-bottom:10px">
       <span class="pill ${dateScope==='vandaag'?'active':''}" data-val="vandaag">Vandaag</span>
@@ -2199,7 +2218,7 @@ function renderList(){
     </div>
     ${(dateScope==='komende' && currentUser.rol !== 'admin') ? `<div class="queue-note" style="margin-bottom:16px;text-align:left">Je ziet hier de planning tot en met de komende week. Voor de volledige planning: vraag de admin.</div>` : ''}
   `;
-  let visible = deliveries; // "Voor mij" filtert niet langer hard weg — dimt enkel ritten van een ander voertuig, zie cardHtml()
+  let visible = deliveries; // de effectieve filtering (verborgen i.p.v. enkel dimmen) gebeurt verderop per sectie, zie isZichtbaarVoorFilter()
   const highlightMine = listFilter === 'mij';
 
   if(deliveries.length === 0){
@@ -2259,6 +2278,15 @@ function renderList(){
     opTeHalen = [...opTeHalen].sort((a,b)=> sortKeyFor(a,'afhaaltijd') - sortKeyFor(b,'afhaaltijd'));
     afgerond = [...afgerond].sort((a,b)=> sortKeyFor(a,'afhaaltijd') - sortKeyFor(b,'afhaaltijd'));
     nogNietKlaar = [...nogNietKlaar].sort((a,b)=> sortKeyFor(a,'afhaaltijd') - sortKeyFor(b,'afhaaltijd'));
+
+    // "Voor mij" (standaard op een voertuig-account): ritten die overduidelijk
+    // aan het andere voertuig toegewezen zijn hier weg, tot er expliciet op
+    // "Toon alle leveringen" gedrukt wordt.
+    teLeveren = teLeveren.filter(d => isZichtbaarVoorFilter(d, 'toegewezenAan'));
+    geleverdKlaar = geleverdKlaar.filter(d => isZichtbaarVoorFilter(d, 'toegewezenAan'));
+    opTeHalen = opTeHalen.filter(d => isZichtbaarVoorFilter(d, 'toegewezenAanAfhaling'));
+    afgerond = afgerond.filter(d => isZichtbaarVoorFilter(d, 'toegewezenAanAfhaling'));
+    nogNietKlaar = nogNietKlaar.filter(d => isZichtbaarVoorFilter(d, 'toegewezenAanAfhaling'));
 
     if(!showLeveringen){ teLeveren = []; geleverdKlaar = []; }
     if(!showAfhalingen){ opTeHalen = []; afgerond = []; nogNietKlaar = []; }
@@ -3731,6 +3759,13 @@ async function showApp(){
   document.getElementById('teamTabBtn').style.display = (currentUser && currentUser.rol === 'admin') ? '' : 'none';
   document.getElementById('instellingenTabBtn').style.display = (currentUser && currentUser.rol === 'admin') ? '' : 'none';
   document.getElementById('voertuigTabBtn').style.display = (currentUser && currentUser.rol !== 'admin') ? '' : 'none';
+  // Een voertuig-account (bv. "Belair Camionette") ziet anders standaard ook
+  // de leveringen/afhalingen van het ANDERE voertuig (bv. "Linirent bus")
+  // mee in de lijst — verwarrend. Start daarom gefilterd op het eigen
+  // voertuig; de admin ziet net alles nodig voor de planning, dus die
+  // start ongefilterd. Met de "Toon alle leveringen"-knop kan iedereen dit
+  // altijd zelf omschakelen (zie renderList()).
+  listFilter = (currentUser && currentUser.rol === 'admin') ? 'alle' : 'mij';
   if(currentUser && currentUser.rol === 'admin'){
     try{ assignableUsers = await apiFetch('/api/users'); }catch(e){ assignableUsers = []; }
   } else {
