@@ -1970,9 +1970,12 @@ async function refreshTeamList(){
 // voertuig-account (bv. "Belair Camionette") start gefilterd op het eigen
 // voertuig, de admin start ongefilterd (ziet alles, voor de planning).
 let listFilter = 'alle'; // 'alle' | 'mij'
+// Beide staan standaard AAN bij het (her)laden van de app — vroeger schakelde
+// "Leveringen" zichzelf automatisch uit als er die dag toevallig niets meer
+// te leveren was, wat verwarrend bleek (Jonas verwachtte hem gewoon altijd
+// aan). Blijft nu gewoon aan tot iemand zelf op de pil klikt.
 let showLeveringen = true;
 let showAfhalingen = true;
-let leveringenManueelIngesteld = false; // zodra iemand zelf op de "Leveringen"-pil klikt, respecteren we die keuze en stopt de automatische uitschakeling
 let dateScope = 'vandaag'; // 'vandaag' | 'morgen' | 'komende'
 let renderedSections = {}; // sectionKey -> geordende array van delivery-ids (voor omhoog/omlaag knoppen)
 
@@ -2198,10 +2201,6 @@ function weekCutoffISO(){
   return d.toISOString().slice(0,10);
 }
 function renderList(){
-  if(!leveringenManueelIngesteld){
-    const today = todayISO();
-    showLeveringen = deliveries.some(d => d.status === 'te-leveren' && d.datum === today);
-  }
   const vehicleOccupancyPanel = renderVehicleOccupancyPanel();
   const filterBar = `
     <div style="display:flex;align-items:center;justify-content:flex-end;margin-bottom:10px">
@@ -2409,7 +2408,7 @@ function bindListEvents(){
   if(typePills){
     typePills.querySelectorAll('.pill').forEach(p=>{
       p.addEventListener('click', ()=>{
-        if(p.dataset.val === 'leveringen'){ showLeveringen = !showLeveringen; leveringenManueelIngesteld = true; }
+        if(p.dataset.val === 'leveringen'){ showLeveringen = !showLeveringen; }
         else if(p.dataset.val === 'afhalingen') showAfhalingen = !showAfhalingen;
         render();
       });
