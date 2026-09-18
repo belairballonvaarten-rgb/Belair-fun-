@@ -3757,7 +3757,6 @@ let autoRefreshTimer = null;
 // niet-opgeslagen vinkjes terugzetten naar de oude (server-)waarde, zodat een
 // nadien geklikte "Bevestigen"-knop net de oude, niet-aangepaste gegevens
 // opsloeg — dat leek dan alsof "bevestigen" de aanpassing niet opsloeg.
-const AUTOREFRESH_EXCLUDED_VIEWS = ['detail'];
 function isTypingActive(){
   const el = document.activeElement;
   if(!el) return false;
@@ -3768,11 +3767,25 @@ function startAutoRefresh(){
   if(autoRefreshTimer) return;
   autoRefreshTimer = setInterval(async ()=>{
     if(document.hidden) return; // niet verversen terwijl het tabblad/scherm niet actief is
-    if(AUTOREFRESH_EXCLUDED_VIEWS.includes(view)) return;
     if(isTypingActive()) return; // iemand is net iets aan het invullen: deze beurt overslaan
     try{
       const fresh = await apiFetch('/api/deliveries');
-      deliveries = fresh;
+      // De levering die nu open staat in het dossierscherm ('detail'): het
+      // lokale exemplaar behouden i.p.v. overschrijven met de servergegevens.
+      // Anders kon een achtergrondverversing (elke 60s) net-aangeklikte
+      // vinkjes/pillen die nog niet opgeslagen zijn (plaatsings-/afhaling-
+      // checklist, betaalstatus) stilletjes terugzetten vóór er op
+      // "Bevestigen"/"Gegevens opslaan" gedrukt is.
+      // Voorheen (AUTOREFRESH_EXCLUDED_VIEWS) blokkeerde dit de verversing
+      // voor ALLE leveringen zodra om het even welk dossier open stond —
+      // daardoor kwam een aanpassing op het platform (bv. tijdstip, adres,
+      // product) nooit door in de app zolang een chauffeur toevallig een
+      // dossierscherm open had staan, ook niet voor heel andere leveringen.
+      // Hij moest dan de hele app heropenen om iets te zien. Nu geldt de
+      // bescherming enkel nog voor die ene, actief geopende levering; alles
+      // andere ververst gewoon mee.
+      const huidig = (view === 'detail' && currentId) ? deliveries.find(d => d.id === currentId) : null;
+      deliveries = huidig ? fresh.map(d => d.id === huidig.id ? huidig : d) : fresh;
       persistedIds.clear();
       deliveries.forEach(d => persistedIds.add(d.id));
       render();
