@@ -2585,6 +2585,8 @@ function renderDetail(d){
         </div>
       </div>` : ''}
       <button class="btn small secondary" id="edit-plaatsing" style="margin-top:10px">Levering bewerken</button>
+      ${d.email ? `<button class="btn secondary" id="verstuur-getekend-doc" style="margin-top:10px;width:100%">✉️ Verstuur getekende aflevering</button>`
+        : `<div class="queue-note" style="margin-top:10px">Geen e-mailadres bekend voor deze klant — document kan niet gemaild worden.</div>`}
     `}
   </div>
 
@@ -3024,6 +3026,23 @@ function bindDetailEvents(d){
       d.toegewezenAanAfhaling = gekozen;
       try{ await saveDeliveries(d); showToast(gekozen ? 'Afhaling: ' + gekozen.naam : 'Afhaling niet meer toegewezen'); }
       catch(err){ d.toegewezenAanAfhaling = prev; showToast(err.message); }
+    });
+  }
+
+  const verstuurGetekendDocBtn = document.getElementById('verstuur-getekend-doc');
+  if(verstuurGetekendDocBtn){
+    verstuurGetekendDocBtn.addEventListener('click', async ()=>{
+      verstuurGetekendDocBtn.disabled = true;
+      const origLabel = verstuurGetekendDocBtn.textContent;
+      verstuurGetekendDocBtn.textContent = 'Bezig met versturen...';
+      try{
+        await apiFetch('/api/deliveries/' + d.id + '/verstuur-getekende-aflevering', { method:'POST' });
+        showToast('Document verstuurd naar ' + d.email);
+      }catch(err){
+        showToast(err.message || 'Versturen mislukt');
+      }
+      verstuurGetekendDocBtn.disabled = false;
+      verstuurGetekendDocBtn.textContent = origLabel;
     });
   }
 
