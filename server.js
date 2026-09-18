@@ -821,6 +821,38 @@ app.post('/api/deliveries/:id/send-review-email', auth, async (req, res) => {
   }
 });
 
+// Knop "Verstuur getekende aflevering" — het PDF-document (met plaatsings-
+// checklist, handtekening en huurvoorwaarden) wordt niet hier gegenereerd
+// (dat vereist pdfkit + de opmaaklogica, die enkel op het boekingsplatform
+// staat), maar via een beveiligde server-naar-server-aanroep opgevraagd bij
+// het platform, dat het meteen als bijlage naar de klant mailt. Zo kan een
+// chauffeur meteen na de handtekening — bv. als betalingsbewijs — het
+// document laten versturen, zonder dat hij hiervoor naar het platform moet.
+app.post('/api/deliveries/:id/verstuur-getekende-aflevering', auth, async (req, res) => {
+  const platformUrl = process.env.BOEKINGSPLATFORM_URL;
+  const sleutel = process.env.LEVERINGEN_APP_SYNC_SECRET;
+  if (!platformUrl || !sleutel) {
+    return res.status(501).json({
+      error: 'Koppeling met het platform is nog niet geconfigureerd (BOEKINGSPLATFORM_URL / LEVERINGEN_APP_SYNC_SECRET ontbreken bij Render).',
+      notConfigured: true,
+    });
+  }
+  try {
+    const platformRes = await fetch(platformUrl.replace(/\/$/, '') + '/api/sync/leveringen-app/verstuur-ondertekend-document', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-belair-sync-key': sleutel },
+      body: JSON.stringify({ boekingsnummer: req.params.id }),
+    });
+    const data = await platformRes.json().catch(() => ({}));
+    if (!platformRes.ok) {
+      return res.status(platformRes.status).json({ error: data.fout || 'Versturen mislukt' });
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(502).json({ error: 'Kon het platform niet bereiken: ' + e.message });
+  }
+});
+
 // ---------- Push-meldingen ----------
 app.get('/api/push/public-key', auth, (req, res) => {
   res.json({ key: process.env.VAPID_PUBLIC_KEY || null });
