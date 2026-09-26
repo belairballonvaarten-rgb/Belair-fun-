@@ -2121,6 +2121,13 @@ function primaryProductLabel(d){
   const shown = agg.slice(0,3).map(a => a.aantal>1 ? `${a.naam} x${a.aantal}` : a.naam).join(', ');
   return agg.length > 3 ? `${shown} (+${agg.length - 3} meer)` : shown;
 }
+// "Zeker afhalen" — d.zekerAfhalen komt van de server (zie bepaalZekerAfhalenBoekingIds
+// in server.js): dit product wordt morgen alweer bij een andere klant verhuurd,
+// dus deze afhaling mag niet uitgesteld worden. Klein en subtiel op vraag van
+// Jonas — gewoon een icoontje met tooltip, geen opvallende badge/alarm.
+function zekerAfhalenIconHtml(d){
+  return d.zekerAfhalen ? `<span style="color:var(--warn)" title="Zeker afhalen — dit product wordt morgen alweer verhuurd">⏰</span>` : '';
+}
 function cardHtml(d, extraClass, highlightMine){
   const isAfhalingFase = (d.status === 'geplaatst' || d.status === 'afgerond');
   const relevantAssign = isAfhalingFase ? d.toegewezenAanAfhaling : d.toegewezenAan;
@@ -2142,7 +2149,7 @@ function cardHtml(d, extraClass, highlightMine){
   return `<div class="card status-${d.status} ${forMe?'card-mine':''}" data-id="${d.id}" style="${dimmed?'opacity:0.5':''}">
     <div class="row1">
       <div>
-        <div class="klant">${escapeHtml(primaryProductLabel(d))} ${factuurStar}</div>
+        <div class="klant">${escapeHtml(primaryProductLabel(d))} ${factuurStar}${d.status==='geplaatst' ? zekerAfhalenIconHtml(d) : ''}</div>
         <div class="adres" style="margin-top:1px">${escapeHtml(d.klant || 'Naamloos')}</div>
         <div class="adres" style="opacity:0.75">${escapeHtml(d.adres || 'Geen adres')}</div>
       </div>
@@ -2184,7 +2191,7 @@ function notReadyCardHtml(d){
   return `<div class="card status-nog-niet-klaar" data-id="${d.id}">
     <div class="row1">
       <div>
-        <div class="klant">${escapeHtml(primaryProductLabel(d))}</div>
+        <div class="klant">${escapeHtml(primaryProductLabel(d))}${zekerAfhalenIconHtml(d)}</div>
         <div class="adres" style="margin-top:1px">${escapeHtml(d.klant || 'Naamloos')}</div>
       </div>
       <div class="tijd">${escapeHtml(d.afhaaltijd || '')}</div>

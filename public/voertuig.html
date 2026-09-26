@@ -170,9 +170,12 @@ async function render(){
       </div>
     `).join('') : '<p class="leeg">Niets te leveren vandaag.</p>';
     const afhEl = document.getElementById('v-afhalingen');
+    // d.zekerAfhalen komt van de server (zie bepaalZekerAfhalenBoekingIds in
+    // server.js): dit product wordt morgen alweer verhuurd, dus niet uitstellen.
+    // Klein/subtiel icoontje, op vraag van Jonas — geen opvallend alarm.
     afhEl.innerHTML = data.afhalingen.length ? data.afhalingen.map(d => `
       <div class="stop">
-        <div class="titel">${fmtTijd(d.afhaaltijd)} — ${escapeHtml(d.klant || 'Naamloos')}</div>
+        <div class="titel">${fmtTijd(d.afhaaltijd)} — ${escapeHtml(d.klant || 'Naamloos')}${d.zekerAfhalen ? ` <span style="color:#d9a441" title="Zeker afhalen — dit product wordt morgen alweer verhuurd">⏰</span>` : ''}</div>
         <div class="sub2">${escapeHtml(d.adres || '')}</div>
       </div>
     `).join('') : '<p class="leeg">Niets af te halen vandaag.</p>';
