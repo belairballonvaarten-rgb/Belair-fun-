@@ -397,6 +397,7 @@ const DELIVERIES_SELECT = `
          k.adres AS klant_adres, k.postcode AS klant_postcode, k.gemeente AS klant_gemeente,
          l.id AS leveringen_id, l.voertuig_levering, l.voertuig_afhaling,
          l.leveringstijd, l.afhaaltijd,
+         COALESCE(l.afhaling_moet_zeker, false) AS afhaling_moet_zeker,
          l.volgorde_levering, l.volgorde_afhaling,
          COALESCE(l.levering_voltooid, false) AS levering_voltooid,
          COALESCE(l.afhaling_voltooid, false) AS afhaling_voltooid,
@@ -494,7 +495,12 @@ function rijNaarLevering(row, voertuigenPerNaam) {
       verzetAangevraagd: !!row.afhaling_verzet_aangevraagd,
       verzetNaarDatum: naarDatumString(row.afhaling_verzet_naar_datum),
       verzetReden: row.afhaling_verzet_reden || ''
-    }
+    },
+    // "Zeker afhalen" — start op de manuele vlag die Jonas zelf in het
+    // boekingdossier op het boekingsplatform kan aanzetten (afhaling_moet_zeker,
+    // rechtstreeks uit DELIVERIES_SELECT); voegZekerAfhalenToe() hieronder
+    // OR't daar nog de automatische, voorraad-gebaseerde berekening bovenop.
+    zekerAfhalen: !!row.afhaling_moet_zeker
   };
 }
 
@@ -505,12 +511,96 @@ async function haalVoertuigenPerNaamOp() {
   return map;
 }
 
+// "Zeker afhalen"-melding — op vraag van Jonas: waarschuwen bij een afhaling
+// als HET PRODUCT de volgende dag opnieuw verhuurd wordt, zodat de chauffeur
+// weet dat die afhaling niet mag uitgesteld worden. Bij een product met maar
+// 1 exemplaar is elke boeking de volgende dag meteen een probleem; bij
+// meerdere exemplaren pas een probleem als de vrije voorraad zonder dit
+// exemplaar niet volstaat. Zelfde logica (en dezelfde SQL-aanpak) als
+// utils/zekerAfhalen.js in het boekingsplatform — bewust hier apart
+// gehouden i.p.v. gedeeld tussen de 2 apps (zelfde principe als elders:
+// elke app blijft zelfstandig werken, ook als de andere er even uitligt).
+//
+// BLOKKERENDE_STATUSSEN hieronder is bewust dezelfde lijst als
+// utils/beschikbaarheid.js in het boekingsplatform (niet de kortere
+// GEPLANDE_STATUSSEN hierboven, die is voor "wat toon ik in deze app" — hier
+// gaat het om "wat blokkeert er echt voorraad", dus ook een verse aanvraag
+// ('nieuw'/'in_behandeling') telt mee.
+const ZEKER_AFHALEN_BLOKKERENDE_STATUSSEN = [
+  'nieuw', 'in_behandeling', 'geaccepteerd', 'ingepland', 'bevestigd',
+  'betaalverzoek_verstuurd', 'betaald_deels', 'betaald_volledig', 'gefactureerd',
+];
+
+async function bepaalZekerAfhalenBoekingIds(boekingIds) {
+  const ids = [...new Set((boekingIds || []).filter(Boolean))];
+  if (!ids.length) return new Set();
+
+  const { rows } = await pool.query(
+    `
+    WITH afhaal_boekingen AS (
+      SELECT b.id AS boeking_id, b.gewenste_datum_einde::date AS afhaaldag
+      FROM boekingen b
+      WHERE b.id = ANY($1::uuid[])
+    ),
+    afhaal_producten AS (
+      SELECT ab.boeking_id, ab.afhaaldag, bp.product_id, bp.aantal AS aantal_afgehaald,
+             GREATEST(p.max_boekingen_per_dag, 1) AS max_per_dag,
+             COALESCE(p.availability_buffer_dagen, 0) AS buffer_dagen
+      FROM afhaal_boekingen ab
+      JOIN boeking_producten bp ON bp.boeking_id = ab.boeking_id
+      JOIN producten p ON p.id = bp.product_id
+    ),
+    concurrentie AS (
+      -- Gewone (inner) JOINs, geen LEFT JOIN: enkel bp2-rijen meetellen
+      -- waarvan de boeking ook echt aan alle voorwaarden voldoet (zie de
+      -- uitgebreide toelichting in utils/zekerAfhalen.js op het boekingsplatform).
+      SELECT ap.boeking_id, ap.product_id,
+             SUM(bp2.aantal) AS bezet_volgende_dag
+      FROM afhaal_producten ap
+      JOIN boeking_producten bp2 ON bp2.product_id = ap.product_id
+      JOIN boekingen b2
+        ON b2.id = bp2.boeking_id
+        AND b2.id <> ap.boeking_id
+        AND b2.status = ANY($2::text[])
+        AND (b2.gewenste_datum_start - (ap.buffer_dagen || ' days')::interval) <= (ap.afhaaldag + 1)
+        AND (b2.gewenste_datum_einde + (ap.buffer_dagen || ' days')::interval) >= (ap.afhaaldag + 1)
+      GROUP BY ap.boeking_id, ap.product_id
+    )
+    SELECT ap.boeking_id, ap.aantal_afgehaald, ap.max_per_dag,
+           COALESCE(c.bezet_volgende_dag, 0) AS bezet_volgende_dag
+    FROM afhaal_producten ap
+    LEFT JOIN concurrentie c ON c.boeking_id = ap.boeking_id AND c.product_id = ap.product_id
+    `,
+    [ids, ZEKER_AFHALEN_BLOKKERENDE_STATUSSEN]
+  );
+
+  const resultaat = new Set();
+  for (const r of rows) {
+    const vrijeCapaciteit = Number(r.max_per_dag) - Number(r.bezet_volgende_dag);
+    if (vrijeCapaciteit < Number(r.aantal_afgehaald)) resultaat.add(r.boeking_id);
+  }
+  return resultaat;
+}
+
+// Zet .zekerAfhalen op elke levering in de lijst die al opgehaald is/wordt
+// (afhaaldatum ligt in het (recente) verleden of de toekomst — gewoon alle
+// boekingen in de lijst, de check zelf kijkt toch naar de eigen afhaaldag).
+async function voegZekerAfhalenToe(leveringen) {
+  const zekerSet = await bepaalZekerAfhalenBoekingIds(leveringen.map(d => d.id));
+  // OR met de manuele vlag (al gezet in rijNaarLevering) i.p.v. overschrijven —
+  // allebei even zwaar, zie de toelichting daar.
+  leveringen.forEach(d => { d.zekerAfhalen = d.zekerAfhalen || zekerSet.has(d.id); });
+  return leveringen;
+}
+
 app.get('/api/deliveries', auth, async (req, res) => {
   const [{ rows }, voertuigenPerNaam] = await Promise.all([
     pool.query(DELIVERIES_SELECT, [GEPLANDE_STATUSSEN]),
     haalVoertuigenPerNaamOp(),
   ]);
-  res.json(rows.map(row => rijNaarLevering(row, voertuigenPerNaam)));
+  const leveringen = rows.map(row => rijNaarLevering(row, voertuigenPerNaam));
+  await voegZekerAfhalenToe(leveringen);
+  res.json(leveringen);
 });
 
 // Alleen-lezen dagoverzicht voor het vaste voertuig-scherm (voertuig.html) —
@@ -531,6 +621,7 @@ app.get('/api/device/vandaag', auth, deviceOnly, async (req, res) => {
   const afhalingen = alles
     .filter(d => (d.afhaaldatum || d.datum) === vandaag && d.toegewezenAanAfhaling && d.toegewezenAanAfhaling.naam && d.toegewezenAanAfhaling.naam.toLowerCase() === naamLower)
     .sort((a, b) => (a.afhaaltijd || '').localeCompare(b.afhaaltijd || ''));
+  await voegZekerAfhalenToe(afhalingen);
   res.json({ voertuig: req.user.naam, datum: vandaag, leveringen, afhalingen });
 });
 
