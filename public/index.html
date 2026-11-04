@@ -657,6 +657,36 @@ async function loadPhotos(id){
 async function addPhotoRemote(id, naam, dataUrl, fase){
   return apiFetch('/api/deliveries/' + id + '/photos', { method:'POST', body: JSON.stringify({ naam, dataUrl, fase }) });
 }
+// Leest een bestand in RAUW, zonder enige verkleining/compressie — in
+// tegenstelling tot resizeImageFile() hierboven (die bewust verkleint voor
+// snelle opslag/weergave in de app zelf). Gebruikt voor de volle-kwaliteit-
+// kopie die naar Dropbox gaat, zie stuurOrigineelNaarDropbox().
+function leesBestandAlsDataUrl(file){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = e => resolve(e.target.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+// Stuurt de ORIGINELE, niet-verkleinde foto apart door, enkel voor de
+// Dropbox-kopie (zie /api/deliveries/:id/photos/:photoId/origineel op de
+// server — die bewaart dit nergens in de databank, enkel best-effort
+// doorsturen naar Dropbox). Bewust NIET ge-await door de aanroeper: dit mag
+// de checklist-flow nooit vertragen of laten mislukken (bv. een trage
+// verbinding op locatie) — een mislukking hier is onzichtbaar voor de
+// chauffeur, precies zoals de bestaande (nu vervangen) verkleinde kopie dat
+// ook al was.
+async function stuurOrigineelNaarDropbox(deliveryId, photoId, file){
+  try{
+    const dataUrl = await leesBestandAlsDataUrl(file);
+    await apiFetch('/api/deliveries/' + deliveryId + '/photos/' + photoId + '/origineel', {
+      method: 'POST', body: JSON.stringify({ dataUrl })
+    });
+  }catch(e){
+    console.warn('Volle-kwaliteit-kopie naar Dropbox mislukt (foto blijft wel gewoon bewaard):', e.message);
+  }
+}
 async function removePhotoRemote(deliveryId, photoId){
   await apiFetch('/api/deliveries/' + deliveryId + '/photos/' + photoId, { method:'DELETE' });
 }
@@ -3225,9 +3255,12 @@ function bindDetailEvents(d){
     for(const f of teVerwerken){
       try{
         const dataUrl = await resizeImageFile(f);
-        await addPhotoRemote(d.id, f.name, dataUrl, checklistMode);
+        const foto = await addPhotoRemote(d.id, f.name, dataUrl, checklistMode);
         gelukt++;
         refreshPhotoGrid(d.id); // meteen zichtbaar, niet pas na de hele batch
+        // Op de achtergrond (niet ge-await, zie uitleg bij de functie zelf):
+        // de originele, niet-verkleinde foto ook nog apart doorsturen voor Dropbox.
+        stuurOrigineelNaarDropbox(d.id, foto.id, f);
       }catch(err){
         mislukteNamen.push(f.name + ' (' + err.message + ')');
       }
