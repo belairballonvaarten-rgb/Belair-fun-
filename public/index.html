@@ -2082,14 +2082,30 @@ function renderVehicleOccupancyPanel(){
           </details>`;
       }).join('');
     } else {
-      // Crew (in de praktijk: het vaste voertuig-account) kiest hier geen
-      // voertuig meer — dat ligt al vast (Standaard voertuig) — maar duidt
-      // enkel aan wie van de crew vandaag mee rijdt in dát eigen voertuig.
+      // Crew (in de praktijk: het vaste voertuig-account) rijdt normaal in
+      // zijn "Standaard voertuig" (Crew-pagina), maar kan dat voor VANDAAG
+      // apart per fase (levering/afhaling) overschrijven — bv. als het eigen
+      // vaste voertuig/toestel uitvalt (lege batterij) en men noodgedwongen
+      // een ander voertuig gebruikt. Roept /api/mijn-voertuig aan (bestond al
+      // server-side, stond enkel nog niet gekoppeld aan een knop hier). Geldt
+      // enkel voor vandaag — morgen staat alles vanzelf weer op het
+      // standaard voertuig (zie /api/my-teams).
+      const voertuigOpties = teamsData.map((t) =>
+        `<option value="${t.id}" ${t.id === myVoertuigBemanning.voertuigId ? 'selected' : ''}>${escapeHtml(t.naam)}</option>`
+      ).join('');
+      const wijzigVoertuigBlok = `
+        <div style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid rgba(128,128,128,0.25)">
+          <div style="font-size:13px;color:var(--text-dim);margin-bottom:6px">Voertuig voor ${faseLabel(occupancyFase).toLowerCase()} vandaag (bv. bij lege batterij of ander toestel):</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <select id="mijn-voertuig-select" style="flex:1;min-width:160px">${voertuigOpties}</select>
+            <button class="btn small" id="mijn-voertuig-wijzig" type="button">Wijzigen</button>
+          </div>
+        </div>`;
       if(!myVoertuigBemanning.voertuigId){
-        inner = fasePills + `<div class="queue-note" style="text-align:left">Aan dit account hangt nog geen voertuig. Vraag de admin dit in te stellen op de Crew-pagina ("Standaard voertuig").</div>`;
+        inner = fasePills + wijzigVoertuigBlok + `<div class="queue-note" style="text-align:left">Aan dit account hangt nog geen standaard voertuig (Crew-pagina), maar je kan hierboven tijdelijk een voertuig kiezen voor vandaag.</div>`;
       } else {
         const ledenIds = new Set(myVoertuigBemanning.leden.map(l=>l.id));
-        inner = fasePills + `
+        inner = fasePills + wijzigVoertuigBlok + `
           <div style="font-size:13px;color:var(--text-dim);margin-bottom:8px">Wie van de crew zit mee in <b style="color:var(--text)">${escapeHtml(myVoertuigBemanning.voertuigNaam)}</b> voor ${faseLabel(occupancyFase).toLowerCase()}?</div>
           <div class="occ-checkboxes">
             ${crewPubliek.filter(u=>u.id !== currentUser.id).map(u=>`
@@ -2460,6 +2476,24 @@ function bindListEvents(){
         await withBusy(mijnOccSaveBtn, 'Bezig met opslaan...', () => apiFetch('/api/mijn-voertuig-bemanning', { method:'PUT', body: JSON.stringify({ datum: todayISO(), fase: occupancyFase, gebruikerIds }) }));
         await loadOccupancyData();
         showToast('Bemanning opgeslagen');
+        render();
+      }catch(err){ showToast(err.message); }
+    });
+  }
+  const mijnVoertuigWijzigBtn = document.getElementById('mijn-voertuig-wijzig');
+  if(mijnVoertuigWijzigBtn){
+    mijnVoertuigWijzigBtn.addEventListener('click', async (e)=>{
+      e.preventDefault();
+      const select = document.getElementById('mijn-voertuig-select');
+      const voertuigId = select ? select.value : null;
+      if(!voertuigId) return;
+      try{
+        await withBusy(mijnVoertuigWijzigBtn, 'Bezig...', () => apiFetch('/api/mijn-voertuig', { method:'PUT', body: JSON.stringify({ datum: todayISO(), fase: occupancyFase, voertuigId }) }));
+        myTeams = await apiFetch('/api/my-teams');
+        myTeamIds = myTeams.map(t=>t.id);
+        await loadOccupancyData();
+        updateVoertuigBanner();
+        showToast('Voertuig gewijzigd voor vandaag');
         render();
       }catch(err){ showToast(err.message); }
     });
