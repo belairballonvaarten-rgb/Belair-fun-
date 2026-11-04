@@ -207,14 +207,17 @@ async function getDropboxAccessToken() {
   dropboxTokenExpiry = Date.now() + json.expires_in * 1000;
   return dropboxAccessToken;
 }
-async function uploadToDropbox(dropboxPath, buffer) {
+async function uploadToDropbox(dropboxPath, buffer, mode) {
   const token = await getDropboxAccessToken();
   if (!token) return; // Dropbox niet geconfigureerd: gewoon overslaan
+  const dropboxArg = mode === 'overwrite'
+    ? { path: dropboxPath, mode: 'overwrite', mute: true }
+    : { path: dropboxPath, mode: 'add', autorename: true, mute: true };
   const r = await fetch('https://content.dropboxapi.com/2/files/upload', {
     method: 'POST',
     headers: {
       Authorization: 'Bearer ' + token,
-      'Dropbox-API-Arg': JSON.stringify({ path: dropboxPath, mode: 'add', autorename: true, mute: true }),
+      'Dropbox-API-Arg': JSON.stringify(dropboxArg),
       'Content-Type': 'application/octet-stream'
     },
     body: buffer
@@ -812,29 +815,48 @@ app.post('/api/deliveries/:id/photos', auth, async (req, res) => {
     );
     const photo = ins.rows[0];
     res.json(photo);
-
-    // Best-effort kopie naar Dropbox, ná het antwoord — mag de app nooit vertragen of blokkeren
-    (async () => {
-      try {
-        const delRes = await pool.query(
-          `SELECT k.naam AS klant, b.gewenste_datum_start AS datum
-           FROM boekingen b JOIN klanten k ON k.id = b.klant_id WHERE b.id = $1`,
-          [req.params.id]
-        );
-        if (delRes.rows.length === 0) return;
-        const delivery = delRes.rows[0];
-        const base64 = (dataUrl || '').split(',')[1];
-        if (!base64) return;
-        const buffer = Buffer.from(base64, 'base64');
-        const folder = sanitizeForPath(naarDatumString(delivery.datum) || 'ongedateerd') + '_' + sanitizeForPath(delivery.klant);
-        const dropboxPath = '/' + folder + '/foto-' + photo.id + '.jpg';
-        await uploadToDropbox(dropboxPath, buffer);
-      } catch (e) {
-        console.error('Dropbox-kopie mislukt:', e.message);
-      }
-    })();
+    // Geen Dropbox-kopie meer hier — dit zou enkel de verkleinde (900px/62%)
+    // dataUrl kunnen kopiëren, en Jonas wil de foto's in Dropbox net in volle
+    // kwaliteit. Zie POST .../photos/:photoId/origineel hieronder: de app
+    // stuurt daar apart, op de achtergrond, de ORIGINELE (niet-verkleinde)
+    // foto naartoe, enkel bedoeld voor Dropbox (nooit in de databank bewaard).
   } catch (e) {
     res.status(500).json({ error: 'Foto opslaan mislukt: ' + e.message });
+  }
+});
+
+// Volle-kwaliteit-kopie van een net opgeslagen foto, enkel voor Dropbox — de
+// databank zelf bewaart bewust enkel de verkleinde (900px/62%) versie
+// hierboven (snel genoeg voor de in-app foto-grid en het boekingsplatform-
+// dossier), zodat de databank niet onnodig groot wordt met volledige foto's.
+// Best-effort en fire-and-forget (antwoordt meteen): als dit mislukt (bv.
+// trage verbinding op locatie, of Dropbox nog niet ingesteld) blijft de foto
+// gewoon normaal bewaard zoals hierboven — de chauffeur merkt er niets van.
+app.post('/api/deliveries/:id/photos/:photoId/origineel', auth, async (req, res) => {
+  const { dataUrl } = req.body || {};
+  res.json({ ok: true });
+  try {
+    const base64 = (dataUrl || '').split(',')[1];
+    if (!base64) return;
+    const buffer = Buffer.from(base64, 'base64');
+    const delRes = await pool.query(
+      `SELECT k.naam AS klant, b.gewenste_datum_start AS datum
+       FROM leveringen_fotos lf
+       JOIN leveringen l ON l.id = lf.leveringen_id
+       JOIN boekingen b ON b.id = l.boeking_id
+       JOIN klanten k ON k.id = b.klant_id
+       WHERE lf.id = $1 AND l.boeking_id = $2`,
+      [req.params.photoId, req.params.id]
+    );
+    if (delRes.rows.length === 0) return;
+    const delivery = delRes.rows[0];
+    const folder = sanitizeForPath(naarDatumString(delivery.datum) || 'ongedateerd') + '_' + sanitizeForPath(delivery.klant);
+    const dropboxPath = '/' + folder + '/foto-' + req.params.photoId + '.jpg';
+    // 'overwrite' (i.p.v. 'add'+autorename zoals voorheen): dit IS de
+    // definitieve kopie van deze foto, geen aparte/dubbele versie ernaast.
+    await uploadToDropbox(dropboxPath, buffer, 'overwrite');
+  } catch (e) {
+    console.error('Dropbox-volle-kwaliteit-upload mislukt:', e.message);
   }
 });
 app.delete('/api/deliveries/:deliveryId/photos/:photoId', auth, async (req, res) => {
